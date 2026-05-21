@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import shellRoutes from './routes/shell.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,6 +14,8 @@ app.get('/health', (req, res) => {
     service: 'Apex Dev API',
   });
 });
+
+app.use('/shell', shellRoutes);
 
 app.listen(PORT, () => {
   console.log(`Apex Dev API running on port ${PORT}`);
