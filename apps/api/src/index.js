@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import shellRoutes from './routes/shell.js';
+import approvalRoutes from './routes/approval.js';
+import validationRoutes from './routes/validation.js';
+import workspaceRoutes from './routes/workspace.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,6 +19,9 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/shell', shellRoutes);
+app.use('/approvals', approvalRoutes);
+app.use('/validation', validationRoutes);
+app.use('/workspace', workspaceRoutes);
 
 app.listen(PORT, () => {
   console.log(`Apex Dev API running on port ${PORT}`);
