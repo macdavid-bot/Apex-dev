@@ -5,6 +5,7 @@ import approvalRoutes from './routes/approval.js';
 import validationRoutes from './routes/validation.js';
 import workspaceRoutes from './routes/workspace.js';
 import repositoryRoutes from './routes/repository.js';
+import contextRoutes from './routes/context.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,6 +25,7 @@ app.use('/approvals', approvalRoutes);
 app.use('/validation', validationRoutes);
 app.use('/workspace', workspaceRoutes);
 app.use('/repository', repositoryRoutes);
+app.use('/context', contextRoutes);
 
 app.listen(PORT, () => {
   console.log(`Apex Dev API running on port ${PORT}`);
