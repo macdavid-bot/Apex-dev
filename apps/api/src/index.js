@@ -7,6 +7,7 @@ import workspaceRoutes from './routes/workspace.js';
 import repositoryRoutes from './routes/repository.js';
 import contextRoutes from './routes/context.js';
 import orchestratorRoutes from './routes/orchestrator.js';
+import workflowRoutes from './routes/workflow.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,6 +29,7 @@ app.use('/workspace', workspaceRoutes);
 app.use('/repository', repositoryRoutes);
 app.use('/context', contextRoutes);
 app.use('/orchestrator', orchestratorRoutes);
+app.use('/workflow', workflowRoutes);
 
 app.listen(PORT, () => {
   console.log(`Apex Dev API running on port ${PORT}`);
