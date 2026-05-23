@@ -10,6 +10,7 @@ import orchestratorRoutes from './routes/orchestrator.js';
 import workflowRoutes from './routes/workflow.js';
 import gitRoutes from './routes/git.js';
 import validationEngineRoutes from './routes/validation-engine.js';
+import deploymentRoutes from './routes/deployment.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -34,6 +35,7 @@ app.use('/orchestrator', orchestratorRoutes);
 app.use('/workflow', workflowRoutes);
 app.use('/git', gitRoutes);
 app.use('/validation-engine', validationEngineRoutes);
+app.use('/deployment', deploymentRoutes);
 
 app.listen(PORT, () => {
   console.log(`Apex Dev API running on port ${PORT}`);
