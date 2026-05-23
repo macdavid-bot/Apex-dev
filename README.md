@@ -14,12 +14,22 @@ Apex Dev combines:
 - deployment orchestration,
 - persistent memory,
 - realtime terminal systems,
+- conversational engineering workspaces,
+- SSH-aware execution,
 - and workflow automation
-into a single lightweight engineering operating environment.
+into a lightweight but highly capable engineering operating environment.
 
 ---
 
 # Core Capabilities
+
+## Conversational Engineering Workspace
+- Chat-first engineering operations
+- Tool-assisted workflows
+- Persistent engineering conversations
+- SSH-bound chat sessions
+- Context-aware engineering execution
+- Workflow-aware conversations
 
 ## Autonomous Engineering Runtime
 - AI-powered engineering workflows
@@ -57,6 +67,7 @@ into a single lightweight engineering operating environment.
 - JWT authentication
 - bcrypt password security
 - Environment validation
+- SSH-aware session validation
 - Rate limiting
 - Structured logging
 - Command sanitization
@@ -73,12 +84,14 @@ into a single lightweight engineering operating environment.
 - Validation runtime
 - Deployment runtime
 - PostgreSQL + Drizzle foundations
+- SSH session runtime
 
 ## Frontend Stack
 - React
 - React Query
 - Zustand
-- Dashboard foundations
+- Conversational workspace UI
+- SSH key management UI
 - Approval UI
 - Workflow timelines
 - Realtime terminal foundations
@@ -90,16 +103,18 @@ into a single lightweight engineering operating environment.
 - Repair intelligence
 - Workflow planning
 - Persistent memory systems
+- SSH-aware workflow coordination
 
 ---
 
 # Current Development Progress
 
 ```txt
-Core MVP Foundation:      100%
-Operational MVP:          100%
-Pre-Deployment Runtime:   95%
-Production Readiness:     ~90%
+Core MVP Foundation:        100%
+Operational MVP:            100%
+Conversational Runtime:     95%
+Pre-Deployment Runtime:     95%
+Production Readiness:       ~90%
 ```
 
 ---
@@ -191,6 +206,14 @@ Production Readiness:     ~90%
 - Deployment automation
 - Production deployment foundations
 
+## PHASE E — Conversational Workspace Runtime
+- Chat-first engineering architecture
+- Tool-assisted engineering workflows
+- SSH key management UI
+- SSH session coordination
+- Conversational engineering workspace
+- SSH-aware workflow runtime
+
 ---
 
 # Comprehensive File Tree
@@ -230,8 +253,12 @@ Apex-dev/
 │           ├── components/
 │           │   ├── ApprovalCard.jsx
 │           │   ├── ApprovalPanel.jsx
+│           │   ├── ChatToolbar.jsx
+│           │   ├── ChatWorkspace.jsx
 │           │   ├── DeploymentPanel.jsx
 │           │   ├── RepositoryExplorer.jsx
+│           │   ├── SSHKeyManager.jsx
+│           │   ├── SSHSelector.jsx
 │           │   ├── TerminalPanel.jsx
 │           │   ├── ValidationPanel.jsx
 │           │   └── WorkflowTimeline.jsx
@@ -328,6 +355,9 @@ Apex-dev/
 │   │   ├── session.js
 │   │   └── stream.js
 │   │
+│   ├── ssh/
+│   │   └── session-runtime.js
+│   │
 │   ├── validation/
 │   │   ├── build.js
 │   │   ├── install.js
@@ -370,12 +400,13 @@ This dramatically reduces deployment complexity and operational chaos.
 
 # Vision
 
-Apex Dev is evolving into a fully autonomous engineering operating environment capable of:
+Apex Dev is evolving into a fully autonomous conversational engineering operating environment capable of:
 - engineering repositories,
 - orchestrating deployments,
 - validating infrastructure,
 - repairing failures,
 - operating VPS systems,
-- and coordinating real-world engineering workflows with minimal manual intervention.
+- coordinating SSH-aware workflows,
+- and managing real-world engineering operations through conversational interfaces with minimal manual intervention.
 
-The long-term objective is to create a highly efficient private engineering intelligence platform optimized for autonomous software development and infrastructure operations.
+The long-term objective is to create a highly efficient private engineering intelligence platform optimized for autonomous software development, infrastructure orchestration, and conversational engineering operations.
