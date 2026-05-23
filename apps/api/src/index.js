@@ -14,6 +14,7 @@ import deploymentRoutes from './routes/deployment.js';
 import terminalRoutes from './routes/terminal.js';
 import repairRoutes from './routes/repair.js';
 import memoryRoutes from './routes/memory.js';
+import systemRoutes from './routes/system.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -42,6 +43,7 @@ app.use('/deployment', deploymentRoutes);
 app.use('/terminal', terminalRoutes);
 app.use('/repair', repairRoutes);
 app.use('/memory', memoryRoutes);
+app.use('/system', systemRoutes);
 
 app.listen(PORT, () => {
   console.log(`Apex Dev API running on port ${PORT}`);
