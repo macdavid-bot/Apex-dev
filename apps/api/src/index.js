@@ -12,6 +12,7 @@ import gitRoutes from './routes/git.js';
 import validationEngineRoutes from './routes/validation-engine.js';
 import deploymentRoutes from './routes/deployment.js';
 import terminalRoutes from './routes/terminal.js';
+import repairRoutes from './routes/repair.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -38,6 +39,7 @@ app.use('/git', gitRoutes);
 app.use('/validation-engine', validationEngineRoutes);
 app.use('/deployment', deploymentRoutes);
 app.use('/terminal', terminalRoutes);
+app.use('/repair', repairRoutes);
 
 app.listen(PORT, () => {
   console.log(`Apex Dev API running on port ${PORT}`);
