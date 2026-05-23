@@ -1,170 +1,195 @@
 # Apex Dev
 
-Apex Dev is a private autonomous engineering and VPS operations platform built to:
+Apex Dev is a private autonomous engineering and VPS operations platform designed to:
 - understand repositories intelligently,
 - orchestrate engineering workflows,
 - validate and repair codebases,
 - manage deployments,
 - operate VPS infrastructure,
-- and assist with real-world software engineering tasks.
+- and coordinate real-world engineering operations autonomously.
 
-It is designed as a lightweight but powerful engineering operating environment optimized for:
-- token efficiency,
+Apex Dev combines:
+- autonomous engineering,
 - repository intelligence,
-- deployment automation,
-- and autonomous engineering workflows.
+- deployment orchestration,
+- persistent memory,
+- realtime terminal systems,
+- and workflow automation
+into a single lightweight engineering operating environment.
 
 ---
 
-# Core Features
+# Core Capabilities
 
-## Autonomous Engineering
-- Repository intelligence
-- Context-aware code operations
-- Workflow orchestration
+## Autonomous Engineering Runtime
+- AI-powered engineering workflows
 - Approval-aware execution
+- Workflow orchestration
 - Intelligent repair systems
-- Persistent engineering memory
+- Validation-first operations
+- Deployment coordination
 
 ## Repository Intelligence
-- Repository indexing
-- Symbol extraction
-- Targeted context loading
-- File search engine
+- Targeted repository search
 - Selective rescanning
+- Symbol memory
+- Context assembly
+- Repository indexing
 - Persistent architecture memory
 
-## Git + Workspace Systems
-- Repository cloning
-- Workspace isolation
-- Branch management
-- Diff inspection
-- Commit orchestration
-- Validation-aware workflows
-
-## Validation + Diagnostics
-- Dependency installation
-- Build execution
-- Lint execution
-- Diagnostics parsing
-- Repair suggestions
-- Validation-first workflows
+## Interactive Engineering Environment
+- Interactive dashboard
+- Realtime terminal architecture
+- Workflow visualization
+- Approval management
+- Deployment monitoring
+- Validation diagnostics
 
 ## VPS Operations
-- Docker deployment runtime
-- PM2 management runtime
-- VPS package installation
-- Deployment orchestration
-- Health monitoring
+- Docker orchestration
+- PM2 runtime management
+- PostgreSQL runtime foundations
 - Environment validation
-
-## Interactive Engineering Environment
-- Interactive terminal sessions
-- Command history
-- Shell streaming
-- AI-assisted shell explanations
-- Dashboard foundations
-- Approval center
+- Deployment scripting
+- Infrastructure automation
 
 ## Security + Stability
-- Command sanitization
+- JWT authentication
+- bcrypt password security
+- Environment validation
 - Rate limiting
 - Structured logging
-- Environment validation
-- Monitoring foundations
-- Operational safety systems
+- Command sanitization
 
 ---
 
-# System Architecture
+# Runtime Architecture
 
-## Backend
+## Backend Stack
 - Express API
-- Modular service architecture
-- Workflow orchestration engine
-- Persistent memory systems
-- Validation engine
-- Deployment engine
+- Socket.IO realtime runtime
+- Workflow execution engine
+- Repair orchestration system
+- Validation runtime
+- Deployment runtime
+- PostgreSQL + Drizzle foundations
 
-## Frontend
-- React dashboard foundations
-- Terminal panel
-- Repository explorer
-- Validation panel
-- Deployment dashboard
-- Approval workflows
+## Frontend Stack
+- React
+- React Query
+- Zustand
+- Dashboard foundations
+- Approval UI
+- Workflow timelines
+- Realtime terminal foundations
 
 ## Intelligence Layer
-- Repository search
-- Symbol memory
+- DeepSeek runtime integration
 - Context assembly
-- Workflow planning
-- Failure analysis
+- Repository intelligence
 - Repair intelligence
+- Workflow planning
+- Persistent memory systems
 
 ---
 
-# Current Development Status
+# Current Development Progress
 
-## Completed Phases
+```txt
+Core MVP Foundation:      100%
+Operational MVP:          100%
+Pre-Deployment Runtime:   95%
+Production Readiness:     ~90%
+```
 
-### PLAN 1 — DeepSeek Brain Integration
-- Orchestration runtime
-- Context assembly
-- AI workflow foundations
+---
 
-### PLAN 2 — Autonomous Workflow Engine
-- Lifecycle management
-- Workflow orchestration
-- Execution pipelines
+# Completed Development Phases
 
-### PLAN 3 — Workspace + Git Runtime
-- Git workflows
-- Branch management
-- Diff systems
-- Commit foundations
+## PLAN 1 — DeepSeek Brain Integration
+- AI orchestration runtime
+- Context injection foundations
+- Prompt execution runtime
 
-### PLAN 4 — Validation + Diagnostics Engine
-- Build execution
-- Lint runtime
+## PLAN 2 — Autonomous Workflow Engine
+- Workflow lifecycle orchestration
+- Execution coordination
+- Approval-aware execution
+
+## PLAN 3 — Workspace + Git Runtime
+- Git execution runtime
+- Branch orchestration
+- Commit runtime
+- Repository operations
+
+## PLAN 4 — Validation + Diagnostics Engine
+- Real validation execution
+- Build orchestration
 - Diagnostics parsing
-- Validation orchestration
+- Validation workflows
 
-### PLAN 5 — VPS Deployment Runtime
+## PLAN 5 — VPS Deployment Runtime
 - Docker deployment runtime
-- PM2 runtime
+- PM2 runtime orchestration
 - Deployment monitoring
-- VPS package installation
+- VPS operational foundations
 
-### PLAN 6 — Manual Shell + Live Terminal
-- Shell sessions
-- Streaming foundations
+## PLAN 6 — Manual Shell + Live Terminal
+- Shell execution runtime
+- Terminal orchestration
 - Command history
-- Terminal intelligence
+- Interactive terminal foundations
 
-### PLAN 7 — Frontend Dashboard
-- Dashboard foundations
-- Terminal UI
-- Deployment UI
+## PLAN 7 — Frontend Dashboard
+- Dashboard runtime foundations
+- Approval interfaces
+- Deployment visualization
 - Repository explorer
 
-### PLAN 8 — Intelligent Repair System
+## PLAN 8 — Intelligent Repair System
 - Failure analysis
 - Root-cause diagnostics
-- Repair suggestions
-- Workflow recovery
+- Repair orchestration
+- Workflow recovery systems
 
-### PLAN 9 — Persistent Repository Intelligence
+## PLAN 9 — Persistent Repository Intelligence
 - Repository memory
-- Symbol memory
-- Change tracking
+- Symbol persistence
 - Context persistence
+- Change tracking
 
-### PLAN 10 — Production Hardening
-- Security layers
-- Logging systems
-- Rate limiting
+## PLAN 10 — Production Hardening
+- Security systems
+- Logging infrastructure
 - Environment validation
+- Operational hardening
+
+## PHASE A — Real Runtime Conversion
+- DeepSeek runtime integration
+- Workflow execution engine
+- Repository runtime search
+- Validation repair loops
+
+## PHASE B — Persistence + Infrastructure
+- PostgreSQL foundations
+- Drizzle integration
+- JWT authentication
+- bcrypt security
+- Persistent runtime foundations
+
+## PHASE C — Frontend Operationalization
+- React Query integration
+- Zustand integration
+- Socket.IO foundations
+- Approval UI systems
+- Workflow visualization
+
+## PHASE D — Pre-Deployment Hardening
+- Dockerization
+- docker-compose runtime
+- PM2 runtime scripts
+- Deployment automation
+- Production deployment foundations
 
 ---
 
@@ -177,58 +202,90 @@ Apex-dev/
 │   ├── api/
 │   │   └── src/
 │   │       ├── index.js
-│   │       └── routes/
-│   │           ├── approval.js
-│   │           ├── context.js
-│   │           ├── deployment.js
-│   │           ├── git.js
-│   │           ├── memory.js
-│   │           ├── orchestrator.js
-│   │           ├── repair.js
-│   │           ├── repository.js
-│   │           ├── shell.js
-│   │           ├── system.js
-│   │           ├── terminal.js
-│   │           ├── validation-engine.js
-│   │           ├── validation.js
-│   │           ├── workflow.js
-│   │           └── workspace.js
+│   │       ├── routes/
+│   │       │   ├── approval.js
+│   │       │   ├── context.js
+│   │       │   ├── deployment.js
+│   │       │   ├── git.js
+│   │       │   ├── memory.js
+│   │       │   ├── orchestrator.js
+│   │       │   ├── repair.js
+│   │       │   ├── repository.js
+│   │       │   ├── shell.js
+│   │       │   ├── system.js
+│   │       │   ├── terminal.js
+│   │       │   ├── validation-engine.js
+│   │       │   ├── validation.js
+│   │       │   ├── workflow.js
+│   │       │   └── workspace.js
+│   │       │
+│   │       └── socket/
+│   │           └── terminal-stream.js
 │   │
 │   └── web/
 │       └── src/
+│           ├── api/
+│           │   └── workflows.ts
+│           │
+│           ├── components/
+│           │   ├── ApprovalCard.jsx
+│           │   ├── ApprovalPanel.jsx
+│           │   ├── DeploymentPanel.jsx
+│           │   ├── RepositoryExplorer.jsx
+│           │   ├── TerminalPanel.jsx
+│           │   ├── ValidationPanel.jsx
+│           │   └── WorkflowTimeline.jsx
+│           │
+│           ├── lib/
+│           │   └── query-client.ts
+│           │
 │           ├── pages/
 │           │   └── Dashboard.jsx
-│           └── components/
-│               ├── ApprovalPanel.jsx
-│               ├── DeploymentPanel.jsx
-│               ├── RepositoryExplorer.jsx
-│               ├── TerminalPanel.jsx
-│               └── ValidationPanel.jsx
+│           │
+│           └── store/
+│               └── workflow-store.ts
+│
+├── scripts/
+│   ├── deploy.sh
+│   └── restart.sh
 │
 ├── services/
 │   ├── ai/
-│   │   └── client.js
+│   │   ├── client.js
+│   │   └── deepseek-runtime.js
+│   │
+│   ├── auth/
+│   │   ├── jwt.js
+│   │   └── password.js
 │   │
 │   ├── context/
 │   │   └── assembler.js
+│   │
+│   ├── database/
+│   │   ├── drizzle-client.js
+│   │   ├── memory-store.js
+│   │   └── schema.js
 │   │
 │   ├── deployment/
 │   │   ├── docker.js
 │   │   ├── health.js
 │   │   ├── packages.js
-│   │   └── pm2.js
+│   │   ├── pm2.js
+│   │   └── runtime.js
 │   │
 │   ├── diagnostics/
 │   │   └── parser.js
 │   │
 │   ├── environment/
+│   │   ├── runtime.js
 │   │   └── validator.js
 │   │
 │   ├── git/
 │   │   ├── branch.js
 │   │   ├── clone.js
 │   │   ├── commit.js
-│   │   └── diff.js
+│   │   ├── diff.js
+│   │   └── runtime.js
 │   │
 │   ├── memory/
 │   │   ├── change-tracker.js
@@ -250,11 +307,13 @@ Apex-dev/
 │   │   ├── failure-analysis.js
 │   │   ├── recovery.js
 │   │   ├── root-cause.js
+│   │   ├── runtime-loop.js
 │   │   └── suggestions.js
 │   │
 │   ├── repository/
 │   │   ├── context-loader.js
 │   │   ├── indexer.js
+│   │   ├── runtime-search.js
 │   │   ├── search.js
 │   │   └── symbols.js
 │   │
@@ -265,21 +324,27 @@ Apex-dev/
 │   ├── shell/
 │   │   ├── assistant.js
 │   │   ├── history.js
+│   │   ├── runtime.js
 │   │   ├── session.js
 │   │   └── stream.js
 │   │
 │   ├── validation/
 │   │   ├── build.js
 │   │   ├── install.js
-│   │   └── lint.js
+│   │   ├── lint.js
+│   │   └── runtime.js
 │   │
 │   ├── workflow/
+│   │   ├── executor.js
 │   │   ├── lifecycle.js
 │   │   ├── orchestrator.js
 │   │   └── pipeline.js
 │   │
 │   └── workspace/
 │
+├── Dockerfile
+├── docker-compose.yml
+├── ecosystem.config.js
 ├── README.md
 ├── package.json
 ├── pnpm-workspace.yaml
@@ -289,13 +354,28 @@ Apex-dev/
 
 ---
 
+# Deployment Philosophy
+
+Apex Dev is designed so that:
+- MOST engineering work is completed before VPS deployment.
+- Deployment day focuses primarily on:
+  - infrastructure installation,
+  - environment configuration,
+  - service startup,
+  - and operational verification.
+
+This dramatically reduces deployment complexity and operational chaos.
+
+---
+
 # Vision
 
-Apex Dev is designed to evolve into a fully autonomous engineering operating system capable of:
+Apex Dev is evolving into a fully autonomous engineering operating environment capable of:
 - engineering repositories,
-- operating infrastructure,
-- validating deployments,
+- orchestrating deployments,
+- validating infrastructure,
 - repairing failures,
-- and coordinating complex software workflows with minimal manual intervention.
+- operating VPS systems,
+- and coordinating real-world engineering workflows with minimal manual intervention.
 
-The long-term goal is to create a highly efficient private engineering intelligence platform optimized for real-world software development and VPS operations.
+The long-term objective is to create a highly efficient private engineering intelligence platform optimized for autonomous software development and infrastructure operations.
