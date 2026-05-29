@@ -1,0 +1,64 @@
+.approval-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.approval-card.approved { border-left: 3px solid #3fb950; }
+.approval-card.rejected { border-left: 3px solid #f85149; }
+.approval-card.pending  { border-left: 3px solid #d29922; }
+
+.ac-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ac-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.ac-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.ac-badge.pending  { background: #2d2204; color: #d29922; }
+.ac-badge.approved { background: #0d2a12; color: #3fb950; }
+.ac-badge.rejected { background: #2d0e0d; color: #f85149; }
+
+.ac-desc {
+  font-size: 13px;
+  color: #8b949e;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.ac-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-approve, .btn-reject {
+  padding: 7px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-approve { background: #238636; color: #fff; }
+.btn-reject  { background: #21262d; color: #f85149; border: 1px solid #f85149; }
+
+.btn-approve:hover, .btn-reject:hover { opacity: 0.85; }
