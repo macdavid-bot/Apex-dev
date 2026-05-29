@@ -138,6 +138,22 @@
   margin: 0;
 }
 
+/* Ghost button */
+.ghost-btn {
+  padding: 4px 12px;
+  background: transparent;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #8b949e;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ghost-btn:hover:not(:disabled) { background: #21262d; color: #c9d1d9; }
+.ghost-btn.danger { border-color: #f85149; color: #f85149; }
+.ghost-btn.danger:hover { background: #2d0e0d; }
+.ghost-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* Form */
 .form-block { display: flex; flex-direction: column; }
 

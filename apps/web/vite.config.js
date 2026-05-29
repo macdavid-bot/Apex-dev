@@ -24,6 +24,8 @@ export default defineConfig({
       '/memory': 'http://localhost:3000',
       '/system': 'http://localhost:3000',
       '/health': 'http://localhost:3000',
+      '/github': 'http://localhost:3000',
+      '/vps': 'http://localhost:3000',
       '/socket.io': {
         target: 'http://localhost:3000',
         ws: true

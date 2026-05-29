@@ -17,6 +17,8 @@ import terminalRoutes from './routes/terminal.js';
 import repairRoutes from './routes/repair.js';
 import memoryRoutes from './routes/memory.js';
 import systemRoutes from './routes/system.js';
+import githubRoutes from './routes/github.js';
+import vpsRoutes from './routes/vps.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,6 +51,8 @@ app.use('/terminal', terminalRoutes);
 app.use('/repair', repairRoutes);
 app.use('/memory', memoryRoutes);
 app.use('/system', systemRoutes);
+app.use('/github', githubRoutes);
+app.use('/vps', vpsRoutes);
 
 // Serve built frontend static files in production
 const distPath = path.resolve(__dirname, '../../../apps/web/dist');
