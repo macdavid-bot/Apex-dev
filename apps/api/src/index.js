@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import shellRoutes from './routes/shell.js';
 import approvalRoutes from './routes/approval.js';
 import validationRoutes from './routes/validation.js';
@@ -16,8 +18,11 @@ import repairRoutes from './routes/repair.js';
 import memoryRoutes from './routes/memory.js';
 import systemRoutes from './routes/system.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 
 app.use(cors());
 app.use(express.json());
@@ -45,6 +50,13 @@ app.use('/repair', repairRoutes);
 app.use('/memory', memoryRoutes);
 app.use('/system', systemRoutes);
 
-app.listen(PORT, () => {
-  console.log(`Apex Dev API running on port ${PORT}`);
+// Serve built frontend static files in production
+const distPath = path.resolve(__dirname, '../../../apps/web/dist');
+app.use(express.static(distPath));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
+app.listen(PORT, HOST, () => {
+  console.log(`Apex Dev API running on http://${HOST}:${PORT}`);
 });
