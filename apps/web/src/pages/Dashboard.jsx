@@ -21,11 +21,12 @@ const TABS = [
 ];
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState('chat');
-  const [messages, setMessages] = useState([
+  const [activeTab, setActiveTab]   = useState('chat');
+  const [sidebarOpen, setSidebar]   = useState(true);
+  const [messages, setMessages]     = useState([
     { role: 'assistant', content: 'Apex Dev initialized. How can I assist with your engineering tasks?' }
   ]);
-  const [input, setInput] = useState('');
+  const [input, setInput]   = useState('');
   const [loading, setLoading] = useState(false);
   const [sshKeys, setSshKeys] = useState([]);
 
@@ -70,38 +71,62 @@ export default function Dashboard() {
     }
   }
 
+  function selectTab(id) {
+    setActiveTab(id);
+  }
+
+  const activeTabInfo = TABS.find(t => t.id === activeTab);
+
   return (
-    <div className="dashboard">
+    <div className={`dashboard ${sidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
+
+      {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-brand">
           <span className="brand-icon">⬡</span>
-          <span className="brand-name">Apex Dev</span>
+          {sidebarOpen && <span className="brand-name">Apex Dev</span>}
         </div>
+
         <nav className="sidebar-nav">
           {TABS.map(tab => (
             <button
               key={tab.id}
               className={`nav-item ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => selectTab(tab.id)}
+              title={tab.label}
             >
               <span className="nav-icon">{tab.icon}</span>
-              <span className="nav-label">{tab.label}</span>
+              {sidebarOpen && <span className="nav-label">{tab.label}</span>}
             </button>
           ))}
         </nav>
+
         <div className="sidebar-status">
           <span className="status-dot online" />
-          <span>API Connected</span>
+          {sidebarOpen && <span>API Connected</span>}
         </div>
       </aside>
 
+      {/* Main content */}
       <main className="main">
+
+        {/* Top bar with toggle + current panel name */}
+        <div className="topbar">
+          <button
+            className="sidebar-toggle"
+            onClick={() => setSidebar(o => !o)}
+            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+          >
+            {sidebarOpen ? '◀' : '▶'}
+          </button>
+          <span className="topbar-title">
+            {activeTabInfo?.icon} {activeTabInfo?.label}
+          </span>
+        </div>
+
+        {/* Panel content */}
         {activeTab === 'chat' && (
           <div className="chat-layout">
-            <div className="panel-header">
-              <h2>Engineering Assistant</h2>
-              <p>Autonomous AI-powered workspace · DeepSeek powered</p>
-            </div>
             <ChatWorkspace messages={messages} loading={loading} />
             <div className="chat-footer">
               <textarea
