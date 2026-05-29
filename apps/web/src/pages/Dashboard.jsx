@@ -26,9 +26,10 @@ export default function Dashboard() {
   const [messages, setMessages]     = useState([
     { role: 'assistant', content: 'Apex Dev initialized. How can I assist with your engineering tasks?' }
   ]);
-  const [input, setInput]   = useState('');
-  const [loading, setLoading] = useState(false);
-  const [sshKeys, setSshKeys] = useState([]);
+  const [input, setInput]         = useState('');
+  const [loading, setLoading]     = useState(false);
+  const [sshKeys, setSshKeys]     = useState([]);
+  const [convId, setConvId]       = useState(null);
 
   async function handleSend() {
     const text = input.trim();
@@ -40,18 +41,19 @@ export default function Dashboard() {
       const res = await fetch('/orchestrator/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text })
+        body: JSON.stringify({ message: text, conversationId: convId })
       });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
+        if (data.conversationId) setConvId(data.conversationId);
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: data.response || data.message || JSON.stringify(data)
+          content: data.response
         }]);
       } else {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `API error (${res.status}). Check the backend logs.`
+          content: `Error: ${data.error || res.status}`
         }]);
       }
     } catch {
