@@ -1,12 +1,10 @@
 import express from 'express';
 import { NodeSSH } from 'node-ssh';
+import { sessions } from '../../../../services/vps/sessions.js';
 
 const router = express.Router();
 
-// In-memory session store: id -> { host, username, privateKey, label }
-const sessions = new Map();
-
-// Save a VPS session (key stored in memory only)
+// Save a VPS session (credentials stored in memory only — never persisted)
 router.post('/session', (req, res) => {
   const { label, host, username, privateKey, port = 22 } = req.body;
   if (!label || !host || !username || !privateKey)
@@ -17,7 +15,7 @@ router.post('/session', (req, res) => {
   res.json({ success: true, id, label, host, username, port });
 });
 
-// List sessions (no keys exposed)
+// List sessions (no private keys exposed)
 router.get('/sessions', (req, res) => {
   const list = [...sessions.values()].map(({ id, label, host, username, port }) => ({
     id, label, host, username, port
@@ -38,8 +36,7 @@ router.post('/exec', async (req, res) => {
     return res.status(400).json({ error: 'sessionId and command are required' });
 
   const session = sessions.get(sessionId);
-  if (!session)
-    return res.status(404).json({ error: 'Session not found' });
+  if (!session) return res.status(404).json({ error: 'Session not found' });
 
   const ssh = new NodeSSH();
   try {
@@ -50,15 +47,9 @@ router.post('/exec', async (req, res) => {
       privateKey: session.privateKey,
       readyTimeout: 10000
     });
-
     const result = await ssh.execCommand(command, { execOptions: { pty: false } });
     ssh.dispose();
-
-    res.json({
-      stdout: result.stdout,
-      stderr: result.stderr,
-      code: result.code
-    });
+    res.json({ stdout: result.stdout, stderr: result.stderr, code: result.code });
   } catch (err) {
     if (ssh.isConnected()) ssh.dispose();
     res.status(500).json({ error: err.message });

@@ -90,7 +90,11 @@ export default function Dashboard() {
 
       if (res.ok) {
         if (data.conversationId) setConvId(data.conversationId);
-        setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.response,
+          actions: data.executedActions || []
+        }]);
       } else {
         setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.error || res.status}` }]);
       }

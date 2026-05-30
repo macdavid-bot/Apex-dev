@@ -49,6 +49,110 @@
   font-size: 14px;
 }
 
+/* Markdown rendering */
+.message-md { line-height: 1.7; }
+
+.md-heading { margin: 10px 0 4px; color: #e6edf3; font-weight: 600; }
+h4.md-heading { font-size: 13px; }
+h5.md-heading { font-size: 12px; }
+
+.md-para { margin: 2px 0; }
+.md-spacer { height: 6px; }
+
+.md-list { margin: 4px 0 4px 18px; padding: 0; }
+.md-list li { margin: 2px 0; }
+
+.md-inline-code {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  color: #79c0ff;
+}
+
+.md-code-block {
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 6px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.md-code-lang {
+  display: block;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: #8b949e;
+  background: #161b22;
+  border-bottom: 1px solid #21262d;
+  font-family: monospace;
+}
+
+.md-code-block pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #e6edf3;
+}
+
+/* Action steps */
+.action-steps {
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.action-step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.action-step-ok {
+  background: #0d2119;
+  border: 1px solid #1a4731;
+  color: #3fb950;
+}
+
+.action-step-err {
+  background: #2d0f0f;
+  border: 1px solid #5a1d1d;
+  color: #f85149;
+}
+
+.action-step-label {
+  font-family: 'Fira Code', monospace;
+  font-size: 11.5px;
+}
+
+.action-step-detail {
+  color: #f85149;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.action-step-output {
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  background: #0d1117;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #8b949e;
+  max-height: 80px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* Typing indicator */
 .message-bubble.typing {
   display: flex;
