@@ -9,7 +9,7 @@ Apex Dev is a private autonomous engineering and VPS operations platform designe
 - and coordinate real-world engineering operations autonomously.
 
 Apex Dev combines:
-- autonomous engineering,
+- autonomous AI engineering (DeepSeek agent loop with real shell/git/file actions),
 - repository intelligence,
 - deployment orchestration,
 - persistent memory,
@@ -24,19 +24,19 @@ into a lightweight but highly capable engineering operating environment.
 # Core Capabilities
 
 ## Conversational Engineering Workspace
-- Chat-first engineering operations
-- Tool-assisted workflows
+- Chat-first engineering operations with a real DeepSeek agent loop
+- Tool-assisted workflows (read_file, edit_file, create_branch, run_local, run_vps, git_diff)
 - Persistent engineering conversations
 - SSH-bound chat sessions
 - Context-aware engineering execution
 - Workflow-aware conversations
 
 ## Autonomous Engineering Runtime
-- AI-powered engineering workflows
-- Approval-aware execution
-- Workflow orchestration
-- Intelligent repair systems
-- Validation-first operations
+- AI-powered engineering workflows (up to 8 action iterations per prompt)
+- Approval-aware execution with approve/reject endpoints
+- Workflow lifecycle tracking (in-memory store)
+- AI-powered repair systems (failure analysis, root cause, suggestions via DeepSeek)
+- Validation-first operations (real shell-based checks)
 - Deployment coordination
 
 ## Repository Intelligence
@@ -52,194 +52,113 @@ into a lightweight but highly capable engineering operating environment.
 - Realtime terminal architecture
 - Workflow visualization
 - Approval management
-- Deployment monitoring
+- Deployment monitoring (PM2 jlist + local health probes + VPS SSH probe)
 - Validation diagnostics
 
 ## VPS Operations
-- Docker orchestration
+- Docker Compose orchestration
 - PM2 runtime management
 - PostgreSQL runtime foundations
 - Environment validation
 - Deployment scripting
 - Infrastructure automation
 
-## Security + Stability
-- JWT authentication
-- bcrypt password security
-- Environment validation
+## Security & Stability
+- In-process rate limiting (300 req/min per IP)
+- Environment variable validation
 - SSH-aware session validation
-- Rate limiting
-- Structured logging
 - Command sanitization
+- Structured logging
+- 10 MB request body limit
 
 ---
 
 # Runtime Architecture
 
 ## Backend Stack
-- Express API
-- Socket.IO realtime runtime
-- Workflow execution engine
-- Repair orchestration system
-- Validation runtime
-- Deployment runtime
-- PostgreSQL + Drizzle foundations
-- SSH session runtime
+- Express API (`apps/api`)
+- Real shell executor via `child_process`
+- Workflow execution engine with in-memory store
+- AI repair orchestration (DeepSeek)
+- Real validation runtime (shell-based)
+- Real deployment runtime (PM2 + Docker Compose)
+- SSH session runtime (node-ssh)
 
 ## Frontend Stack
-- React
+- React + Vite (`apps/web`)
 - React Query
 - Zustand
-- Conversational workspace UI
+- Chat workspace UI with action step pills
 - SSH key management UI
-- Approval UI
+- Approval UI (approve/reject)
 - Workflow timelines
-- Realtime terminal foundations
+- Deployment dashboard
 
 ## Intelligence Layer
-- DeepSeek runtime integration
+- DeepSeek runtime integration (agent loop, 8-iteration max)
+- `apex-action` JSON block parsing and execution
 - Context assembly
 - Repository intelligence
-- Repair intelligence
+- AI-powered repair intelligence
 - Workflow planning
 - Persistent memory systems
 - SSH-aware workflow coordination
 
 ---
 
-# Current Development Progress
+# Deployment
 
-```txt
-Core MVP Foundation:        100%
-Operational MVP:            100%
-Conversational Runtime:     95%
-Pre-Deployment Runtime:     95%
-Production Readiness:       ~90%
+## Development
+```bash
+pnpm install
+pnpm dev                # starts api on :3000 + web on :5000
 ```
 
----
+## Docker (production)
+```bash
+docker build -t apex-dev .
+docker run -p 3000:3000 \
+  -e DEEPSEEK_API_KEY=sk-... \
+  -e GITHUB_TOKEN=ghp_... \
+  apex-dev
+```
 
-# Completed Development Phases
-
-## PLAN 1 — DeepSeek Brain Integration
-- AI orchestration runtime
-- Context injection foundations
-- Prompt execution runtime
-
-## PLAN 2 — Autonomous Workflow Engine
-- Workflow lifecycle orchestration
-- Execution coordination
-- Approval-aware execution
-
-## PLAN 3 — Workspace + Git Runtime
-- Git execution runtime
-- Branch orchestration
-- Commit runtime
-- Repository operations
-
-## PLAN 4 — Validation + Diagnostics Engine
-- Real validation execution
-- Build orchestration
-- Diagnostics parsing
-- Validation workflows
-
-## PLAN 5 — VPS Deployment Runtime
-- Docker deployment runtime
-- PM2 runtime orchestration
-- Deployment monitoring
-- VPS operational foundations
-
-## PLAN 6 — Manual Shell + Live Terminal
-- Shell execution runtime
-- Terminal orchestration
-- Command history
-- Interactive terminal foundations
-
-## PLAN 7 — Frontend Dashboard
-- Dashboard runtime foundations
-- Approval interfaces
-- Deployment visualization
-- Repository explorer
-
-## PLAN 8 — Intelligent Repair System
-- Failure analysis
-- Root-cause diagnostics
-- Repair orchestration
-- Workflow recovery systems
-
-## PLAN 9 — Persistent Repository Intelligence
-- Repository memory
-- Symbol persistence
-- Context persistence
-- Change tracking
-
-## PLAN 10 — Production Hardening
-- Security systems
-- Logging infrastructure
-- Environment validation
-- Operational hardening
-
-## PHASE A — Real Runtime Conversion
-- DeepSeek runtime integration
-- Workflow execution engine
-- Repository runtime search
-- Validation repair loops
-
-## PHASE B — Persistence + Infrastructure
-- PostgreSQL foundations
-- Drizzle integration
-- JWT authentication
-- bcrypt security
-- Persistent runtime foundations
-
-## PHASE C — Frontend Operationalization
-- React Query integration
-- Zustand integration
-- Socket.IO foundations
-- Approval UI systems
-- Workflow visualization
-
-## PHASE D — Pre-Deployment Hardening
-- Dockerization
-- docker-compose runtime
-- PM2 runtime scripts
-- Deployment automation
-- Production deployment foundations
-
-## PHASE E — Conversational Workspace Runtime
-- Chat-first engineering architecture
-- Tool-assisted engineering workflows
-- SSH key management UI
-- SSH session coordination
-- Conversational engineering workspace
-- SSH-aware workflow runtime
+## PM2 (VPS)
+```bash
+pnpm --filter @apex/web build
+pm2 start ecosystem.config.cjs
+pm2 save
+```
 
 ---
 
 # Comprehensive File Tree
 
 ```txt
-Apex-dev/
+apex-dev/
 │
 ├── apps/
 │   ├── api/
 │   │   └── src/
-│   │       ├── index.js
+│   │       ├── index.js                    # Express entry — CORS, rate limit, routes
 │   │       ├── routes/
-│   │       │   ├── approval.js
+│   │       │   ├── approval.js             # GET / POST / POST /:id/approve|reject
 │   │       │   ├── context.js
-│   │       │   ├── deployment.js
-│   │       │   ├── git.js
+│   │       │   ├── deployment.js           # GET /list, POST /docker|pm2|package|health
+│   │       │   ├── files.js                # read/write/list file operations
+│   │       │   ├── git.js                  # clone/branch/checkout/commit/diff/push
+│   │       │   ├── github.js
 │   │       │   ├── memory.js
-│   │       │   ├── orchestrator.js
-│   │       │   ├── repair.js
+│   │       │   ├── orchestrator.js         # AI agent loop — parses apex-action blocks
+│   │       │   ├── repair.js               # analyze/root-cause/suggestions/recover
 │   │       │   ├── repository.js
-│   │       │   ├── shell.js
+│   │       │   ├── shell.js                # POST /execute (with cwd support)
 │   │       │   ├── system.js
 │   │       │   ├── terminal.js
 │   │       │   ├── validation-engine.js
-│   │       │   ├── validation.js
-│   │       │   ├── workflow.js
+│   │       │   ├── validation.js           # POST /run + GET /run
+│   │       │   ├── vps.js                  # SSH session management
+│   │       │   ├── workflow.js             # GET / list, POST /, PATCH /:id
 │   │       │   └── workspace.js
 │   │       │
 │   │       └── socket/
@@ -252,22 +171,24 @@ Apex-dev/
 │           │
 │           ├── components/
 │           │   ├── ApprovalCard.jsx
+│           │   ├── ApprovalCard.css
 │           │   ├── ApprovalPanel.jsx
 │           │   ├── ChatToolbar.jsx
-│           │   ├── ChatWorkspace.jsx
-│           │   ├── DeploymentPanel.jsx
+│           │   ├── ChatWorkspace.jsx       # renders markdown + action step pills
+│           │   ├── DeploymentPanel.jsx     # calls GET /deployment/list
+│           │   ├── Panel.css
 │           │   ├── RepositoryExplorer.jsx
 │           │   ├── SSHKeyManager.jsx
 │           │   ├── SSHSelector.jsx
 │           │   ├── TerminalPanel.jsx
-│           │   ├── ValidationPanel.jsx
-│           │   └── WorkflowTimeline.jsx
+│           │   ├── ValidationPanel.jsx     # calls POST /validation/run
+│           │   └── WorkflowTimeline.jsx    # calls GET /workflow
 │           │
 │           ├── lib/
 │           │   └── query-client.ts
 │           │
 │           ├── pages/
-│           │   └── Dashboard.jsx
+│           │   └── Dashboard.jsx           # wires actions from orchestrator → messages
 │           │
 │           └── store/
 │               └── workflow-store.ts
@@ -279,7 +200,10 @@ Apex-dev/
 ├── services/
 │   ├── ai/
 │   │   ├── client.js
-│   │   └── deepseek-runtime.js
+│   │   └── deepseek-runtime.js            # runDeepSeekChat — used by orchestrator + repair
+│   │
+│   ├── approval/
+│   │   └── runtime.js                     # createApproval / approveAction / rejectAction
 │   │
 │   ├── auth/
 │   │   ├── jwt.js
@@ -294,10 +218,11 @@ Apex-dev/
 │   │   └── schema.js
 │   │
 │   ├── deployment/
-│   │   ├── docker.js
-│   │   ├── health.js
-│   │   ├── packages.js
-│   │   ├── pm2.js
+│   │   ├── docker.js                      # docker compose up/stop/status
+│   │   ├── health.js                      # HTTP health probe
+│   │   ├── monitor.js                     # PM2 jlist + local port probe + VPS ping
+│   │   ├── packages.js                    # pnpm add / pnpm install
+│   │   ├── pm2.js                         # pm2 restart/start/save
 │   │   └── runtime.js
 │   │
 │   ├── diagnostics/
@@ -307,11 +232,14 @@ Apex-dev/
 │   │   ├── runtime.js
 │   │   └── validator.js
 │   │
+│   ├── file/
+│   │   └── editor.js                      # surgical old_str/new_str patch
+│   │
 │   ├── git/
-│   │   ├── branch.js
+│   │   ├── branch.js                      # createBranch / checkoutBranch / listBranches
 │   │   ├── clone.js
-│   │   ├── commit.js
-│   │   ├── diff.js
+│   │   ├── commit.js                      # createCommit / getStatus
+│   │   ├── diff.js                        # generateDiff / diffUnstaged / pushBranch
 │   │   └── runtime.js
 │   │
 │   ├── memory/
@@ -326,16 +254,12 @@ Apex-dev/
 │   ├── orchestrator/
 │   │   └── runtime.js
 │   │
-│   ├── planner/
-│   │   ├── runtime.js
-│   │   └── steps.js
-│   │
 │   ├── repair/
-│   │   ├── failure-analysis.js
-│   │   ├── recovery.js
-│   │   ├── root-cause.js
+│   │   ├── failure-analysis.js            # AI-powered — calls DeepSeek
+│   │   ├── recovery.js                    # AI-powered — calls DeepSeek
+│   │   ├── root-cause.js                  # AI-powered — calls DeepSeek
 │   │   ├── runtime-loop.js
-│   │   └── suggestions.js
+│   │   └── suggestions.js                 # AI-powered — calls DeepSeek
 │   │
 │   ├── repository/
 │   │   ├── context-loader.js
@@ -351,7 +275,8 @@ Apex-dev/
 │   ├── shell/
 │   │   ├── assistant.js
 │   │   ├── history.js
-│   │   ├── runtime.js
+│   │   ├── index.js                       # runShellCommand — main shell executor
+│   │   ├── runtime.js                     # executeCommand (child_process spawn)
 │   │   ├── session.js
 │   │   └── stream.js
 │   │
@@ -364,30 +289,45 @@ Apex-dev/
 │   │   ├── lint.js
 │   │   └── runtime.js
 │   │
-│   ├── workflow/
-│   │   ├── executor.js
-│   │   ├── lifecycle.js
-│   │   ├── orchestrator.js
-│   │   └── pipeline.js
+│   ├── vps/
+│   │   └── sessions.js                    # shared Map of active VPS SSH sessions
 │   │
-│   └── workspace/
+│   └── workflow/
+│       ├── executor.js
+│       ├── lifecycle.js
+│       ├── orchestrator.js
+│       ├── pipeline.js
+│       └── store.js                       # addWorkflow / updateWorkflow / getWorkflows
 │
-├── Dockerfile
+├── Dockerfile                             # multi-stage: deps → builder → production
 ├── docker-compose.yml
-├── ecosystem.config.js
-├── README.md
-├── package.json
+├── ecosystem.config.cjs                   # PM2 config (cjs — avoids ESM conflict)
+├── package.json                           # "type":"module", pnpm workspaces
 ├── pnpm-workspace.yaml
 ├── tsconfig.json
-└── .env.example
+├── .env.example
+└── README.md
 ```
+
+---
+
+# Environment Variables
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | Yes | AI agent loop, repair analysis |
+| `GITHUB_TOKEN` | Yes | GitHub API integration |
+| `PORT` | No | API port (default: 3000) |
+| `HOST` | No | API bind host (default: 0.0.0.0) |
+| `NODE_ENV` | No | `production` enables strict CORS |
+| `ALLOWED_ORIGINS` | Prod | Comma-separated allowed CORS origins |
 
 ---
 
 # Deployment Philosophy
 
 Apex Dev is designed so that:
-- MOST engineering work is completed before VPS deployment.
+- Most engineering work is completed before VPS deployment.
 - Deployment day focuses primarily on:
   - infrastructure installation,
   - environment configuration,

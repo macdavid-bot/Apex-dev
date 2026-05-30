@@ -1,0 +1,2 @@
+- [Apex Dev architecture](apex-dev-arch.md) — pnpm monorepo: apps/api (Express ESM) + apps/web (React/Vite); services/ shared across both
+- [Apex Dev wiring status](apex-dev-wiring.md) — all routes, services, and AI loop are fully wired; key constraints and patterns documented

@@ -5,6 +5,7 @@ import { runDeepSeekChat } from '../../../../services/ai/deepseek-runtime.js';
 import { runShellCommand } from '../../../../services/shell/index.js';
 import { readLocalFile, patchLocalFile, listLocalDir } from '../../../../services/file/editor.js';
 import { sessions as vpsSessions } from '../../../../services/vps/sessions.js';
+import { addWorkflow, updateWorkflow } from '../../../../services/workflow/store.js';
 
 const router = express.Router();
 
@@ -410,17 +411,31 @@ router.post('/chat', async (req, res) => {
     userMessage = `[File loaded: ${fileContext.path}]\n\`\`\`\n${fileContext.content}\n\`\`\`\n\n${message}`;
   }
 
+  const wf = addWorkflow({
+    title: message.slice(0, 72) + (message.length > 72 ? '…' : ''),
+    description: repoContext ? `repo: ${repoContext.owner}/${repoContext.repo}` : 'local',
+    status: 'running',
+    type: 'ai-task'
+  });
+
   try {
     const { finalResponse, executedActions, iterations } = await runAgentLoop(apiKey, conv, userMessage);
+
+    updateWorkflow(wf.id, {
+      status: 'completed',
+      description: `${executedActions.length} action(s) in ${iterations} iteration(s)`
+    });
 
     res.json({
       response: finalResponse,
       conversationId: id,
       executedActions,
-      iterations
+      iterations,
+      workflowId: wf.id
     });
   } catch (err) {
     console.error('Agent loop error:', err.message);
+    updateWorkflow(wf.id, { status: 'failed', description: err.message });
     // Pop the last user message if AI never responded
     if (conv.messages.at(-1)?.role === 'user') conv.messages.pop();
     res.status(500).json({ error: err.message });
