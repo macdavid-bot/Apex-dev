@@ -1,142 +1,238 @@
 import express from 'express';
-import { runTask } from '../../../../services/orchestrator/runtime.js';
-import { assembleContext } from '../../../../services/context/assembler.js';
-import { runDeepSeekChat } from '../../../../services/ai/deepseek-runtime.js';
+import { runDeepSeekStream } from '../../../../services/ai/deepseek-runtime.js';
 import { runShellCommand } from '../../../../services/shell/index.js';
 import { readLocalFile, patchLocalFile, listLocalDir } from '../../../../services/file/editor.js';
 import { sessions as vpsSessions } from '../../../../services/vps/sessions.js';
 import { addWorkflow, updateWorkflow } from '../../../../services/workflow/store.js';
+import { enqueue } from '../../../../services/queue/store.js';
+import { registerJobRunner } from '../../../../services/queue/worker.js';
+import { formatMemoryForPrompt, addFact } from '../../../../services/memory/project-memory.js';
+import { searchCode } from '../../../../services/embeddings/fts.js';
+import { requireAuth } from '../../../../services/auth/middleware.js';
+import { query, queryOne, dbAvailable } from '../../../../services/db/client.js';
 
 const router = express.Router();
 
-// conversationId -> { messages: Message[], repoCtx: object|null }
+// in-memory conversation cache (also written to DB when available)
 const conversations = new Map();
 
-const BASE_SYSTEM = `You are Apex Dev, an autonomous engineering AI. You can directly take actions — you do not need to ask the user to do things you are capable of doing yourself.
+// ── System prompt ─────────────────────────────────────────────────────────────
+
+const BASE_SYSTEM = `You are Apex Dev, an autonomous engineering AI. You act directly — you never ask the user to do things you can do yourself.
 
 ## Available Actions
-Embed action blocks in your response using this exact format:
+Embed action blocks in your response using this exact format (each block is valid JSON):
 
 \`\`\`apex-action
 {"type": "ACTION_TYPE", ...params}
 \`\`\`
 
-You can include multiple action blocks in one response. They execute in order. Results are fed back to you automatically.
+Multiple action blocks per response are fine — they execute in order.
 
-### Action Types
+### Actions
 
-**read_file** — Read a file from the loaded GitHub repo
+**search_repo** — ALWAYS start here. Search for symbols, functions, text across the repo before reading any file.
 \`\`\`apex-action
-{"type": "read_file", "path": "src/index.js"}
+{"type": "search_repo", "query": "handleLogin", "path": "src", "language": "javascript"}
 \`\`\`
 
-**edit_file** — Edit a file surgically using str_replace. Always read the file first. NEVER rewrite the whole file unless it is new.
+**search_code_fts** — Full-text semantic search across indexed codebase (faster for large repos).
 \`\`\`apex-action
-{"type": "edit_file", "path": "src/index.js", "old_str": "exact text to replace", "new_str": "replacement text", "branch": "feature/my-branch", "commit_message": "fix: update port config"}
+{"type": "search_code_fts", "query": "authentication middleware"}
 \`\`\`
 
-**create_branch** — Create a feature branch before making any code changes. Always do this first.
+**read_file** — Read a file from the GitHub repo.
 \`\`\`apex-action
-{"type": "create_branch", "branch": "feature/my-feature", "from": "main"}
+{"type": "read_file", "path": "src/index.js", "branch": "main"}
 \`\`\`
 
-**run_local** — Run a shell command on the local machine
-\`\`\`apex-action
-{"type": "run_local", "command": "npm test", "cwd": "/path/to/project"}
-\`\`\`
-
-**run_vps** — Run a command on a connected VPS session
-\`\`\`apex-action
-{"type": "run_vps", "session_id": "SESSION_ID", "command": "pm2 restart app"}
-\`\`\`
-
-**list_files** — List files in a GitHub repo directory
+**list_files** — List files in a directory.
 \`\`\`apex-action
 {"type": "list_files", "path": "src/components"}
 \`\`\`
 
-**git_diff** — Get the diff between two branches or staged changes
+**edit_file** — Surgically edit a file (str_replace). Always read first. Never rewrite whole files.
+\`\`\`apex-action
+{"type": "edit_file", "path": "src/index.js", "old_str": "exact text", "new_str": "replacement", "branch": "feature/my-branch", "commit_message": "fix: update port"}
+\`\`\`
+
+**create_branch** — Create a feature branch. Always do this before editing.
+\`\`\`apex-action
+{"type": "create_branch", "branch": "feature/my-feature", "from": "main"}
+\`\`\`
+
+**git_diff** — Compare branches or show staged changes.
 \`\`\`apex-action
 {"type": "git_diff", "base": "main", "head": "feature/my-branch"}
 \`\`\`
 
-**search_repo** — Search for symbols, functions, patterns, or text across the loaded repository. ALWAYS call this first when you need to find something — never guess file paths or read files blindly.
+**run_tests** — Clone the branch locally and run the project's test suite. REQUIRED before create_pull_request.
 \`\`\`apex-action
-{"type": "search_repo", "query": "handleLogin", "path": "src", "language": "javascript"}
+{"type": "run_tests", "branch": "feature/my-branch", "test_command": "npm test"}
 \`\`\`
-- query: text or symbol to search for (required)
-- path: subdirectory to limit the search (optional)
-- language: limit to a language (optional, e.g. "javascript", "python")
+- test_command is optional — auto-detected from package.json / pytest.ini / go.mod if omitted.
+
+**create_pull_request** — Create a GitHub PR. Only allowed after run_tests passes.
+\`\`\`apex-action
+{"type": "create_pull_request", "branch": "feature/my-branch", "title": "feat: add login", "body": "Description of changes", "base": "main"}
+\`\`\`
+
+**run_local** — Run a shell command on the local machine.
+\`\`\`apex-action
+{"type": "run_local", "command": "npm install", "cwd": "/tmp/clone"}
+\`\`\`
+
+**run_vps** — Run a command on a connected VPS session.
+\`\`\`apex-action
+{"type": "run_vps", "session_id": "SESSION_ID", "command": "pm2 restart app"}
+\`\`\`
+
+**recall_memory** — Recall stored facts and notes about this project.
+\`\`\`apex-action
+{"type": "recall_memory"}
+\`\`\`
+
+**add_memory** — Store an important fact about this project for future sessions.
+\`\`\`apex-action
+{"type": "add_memory", "fact": "The API uses JWT auth with 30-day expiry"}
+\`\`\`
 
 ## Workflow Rules
-1. **Search before reading**: When asked to find, modify, or understand anything in a repository, ALWAYS start with \`search_repo\` to locate relevant files and line numbers. Never guess file paths — search for the symbol or pattern first, then read only the files that match.
-2. **Branch first**: Always create a feature branch before editing any file. Never edit main directly.
-3. **Read before editing**: Always read a file before editing it — use read_file to get the exact current content.
-4. **Surgical edits**: Use edit_file with old_str/new_str. Make the old_str as specific as possible (include 2–3 lines of context around the change). Never rewrite a whole file unless it is brand new.
-5. **Test before committing**: After editing, run tests or build commands to verify the change works.
-6. **Explain actions**: Briefly explain what you're about to do before each action block.
-7. **VPS tasks**: When the user asks to run something on VPS, use run_vps. List the session ID if known.
+1. **Search before reading**: Always start with search_repo or search_code_fts to find relevant files. Never guess paths.
+2. **Branch first**: Create a feature branch before any edits. Never commit directly to main.
+3. **Read before editing**: Read the current file content before calling edit_file.
+4. **Surgical edits**: Use old_str/new_str with 2-3 lines of context. Never rewrite whole files.
+5. **Test before PR**: ALWAYS call run_tests after editing code. If tests fail, fix the code and run tests again. Repeat up to 3 times. Only call create_pull_request after tests pass.
+6. **Remember**: Use add_memory for important discoveries (architecture decisions, quirks, patterns).
+7. **Explain**: Briefly describe each action before executing it.
+8. **On error**: Read the error, reason about the fix, retry with corrected action.
 
 ## Code Style
-- Use fenced code blocks with language tags for all code snippets.
-- Be concise. Skip boilerplate explanations.
-- If an action fails, read the error, reason about the fix, and retry with a corrected action.`;
+- Concise explanations. Skip boilerplate.
+- Use fenced code blocks with language tags.
+- Prefer existing patterns in the codebase.`;
 
-// ── Action executor ──────────────────────────────────────────────────────────
+// ── DB helpers ────────────────────────────────────────────────────────────────
+
+async function dbSaveConversation(id, repoCtx, sshKey) {
+  if (!await dbAvailable()) return;
+  await query(
+    `INSERT INTO conversations (id, repo_owner, repo_name, repo_branch, ssh_key, updated_at)
+     VALUES ($1,$2,$3,$4,$5,NOW())
+     ON CONFLICT (id) DO UPDATE SET repo_owner=$2, repo_name=$3, repo_branch=$4, ssh_key=$5, updated_at=NOW()`,
+    [id, repoCtx?.owner || null, repoCtx?.repo || null, repoCtx?.branch || 'main', sshKey || null]
+  );
+}
+
+async function dbSaveMessage(convId, role, content, actions = null) {
+  if (!await dbAvailable()) return;
+  await query(
+    `INSERT INTO messages (conversation_id, role, content, actions_json) VALUES ($1,$2,$3,$4)`,
+    [convId, role, content, actions ? JSON.stringify(actions) : null]
+  );
+}
+
+async function dbLoadMessages(convId) {
+  if (!await dbAvailable()) return null;
+  const res = await query(
+    `SELECT role, content, actions_json FROM messages WHERE conversation_id=$1 ORDER BY created_at`,
+    [convId]
+  );
+  return res.rows.map(r => ({
+    role:    r.role,
+    content: r.content,
+    actions: r.actions_json
+  }));
+}
+
+// ── Action executor ───────────────────────────────────────────────────────────
 
 async function executeAction(action, conv) {
   const { repoCtx } = conv;
 
   switch (action.type) {
 
-    case 'read_file': {
-      const { path, branch } = action;
-      if (!path) return { error: 'path is required' };
+    // ── search_repo ──────────────────────────────────────────────────────────
+    case 'search_repo': {
+      const { query: q, path: searchPath, language } = action;
+      if (!q) return { error: 'query is required' };
 
       if (repoCtx?.owner) {
-        // Read from GitHub API
-        const b = branch || repoCtx.branch || 'main';
-        const ghRes = await fetch(
-          `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/contents/${path}?ref=${b}`,
+        const repoFilter = `repo:${repoCtx.owner}/${repoCtx.repo}`;
+        const langFilter = language ? `+language:${language}` : '';
+        const pathFilter = searchPath ? `+path:${searchPath}` : '';
+        const encoded = encodeURIComponent(`${q} ${repoFilter}${langFilter}${pathFilter}`.trim());
+        const res = await fetch(
+          `https://api.github.com/search/code?q=${encoded}&per_page=15`,
           { headers: ghHeaders() }
         );
-        if (!ghRes.ok) return { error: `GitHub: ${ghRes.status} for ${path}` };
-        const data = await ghRes.json();
-        const content = Buffer.from(data.content, 'base64').toString('utf-8');
-        return { path, content, sha: data.sha, branch: b, lines: content.split('\n').length };
+        if (!res.ok) return { error: `GitHub code search failed (${res.status}) — use list_files then read_file`, query: q };
+        const data = await res.json();
+        return {
+          query: q, totalCount: data.total_count,
+          results: data.items.slice(0, 15).map(i => ({ path: i.path, name: i.name, score: i.score }))
+        };
       } else {
-        // Local filesystem fallback
-        return readLocalFile(path);
+        const dir = searchPath || '.';
+        const escaped = q.replace(/"/g, '\\"');
+        const includes = '--include="*.js" --include="*.jsx" --include="*.ts" --include="*.tsx" --include="*.py" --include="*.go" --include="*.rs" --include="*.java" --include="*.sh" --include="*.json" --include="*.yaml" --include="*.yml" --include="*.md"';
+        const filesRes = await runShellCommand(`grep -r ${includes} -l "${escaped}" "${dir}" 2>/dev/null | head -20`, process.cwd());
+        const files = filesRes.stdout.trim().split('\n').filter(Boolean);
+        const matches = await Promise.all(files.slice(0, 8).map(async file => {
+          const linesRes = await runShellCommand(`grep -n "${escaped}" "${file}" 2>/dev/null | head -6`, process.cwd());
+          return { path: file, lines: linesRes.stdout.trim().split('\n').filter(Boolean) };
+        }));
+        return { query: q, totalCount: files.length, results: matches };
       }
     }
 
+    // ── search_code_fts ──────────────────────────────────────────────────────
+    case 'search_code_fts': {
+      if (!repoCtx?.owner) return { error: 'search_code_fts requires a loaded GitHub repository' };
+      const repoKey = `${repoCtx.owner}/${repoCtx.repo}`;
+      return searchCode(repoKey, action.query || '', 15);
+    }
+
+    // ── read_file ────────────────────────────────────────────────────────────
+    case 'read_file': {
+      const { path, branch } = action;
+      if (!path) return { error: 'path is required' };
+      if (repoCtx?.owner) {
+        const b = branch || repoCtx.branch || 'main';
+        const res = await fetch(
+          `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/contents/${path}?ref=${b}`,
+          { headers: ghHeaders() }
+        );
+        if (!res.ok) return { error: `GitHub: ${res.status} for ${path}` };
+        const data = await res.json();
+        const content = Buffer.from(data.content, 'base64').toString('utf-8');
+        return { path, content, sha: data.sha, branch: b, lines: content.split('\n').length };
+      }
+      return readLocalFile(path);
+    }
+
+    // ── edit_file ────────────────────────────────────────────────────────────
     case 'edit_file': {
       const { path, old_str, new_str, branch, commit_message } = action;
       if (!path || old_str === undefined || new_str === undefined)
         return { error: 'path, old_str, and new_str are required' };
 
       if (repoCtx?.owner) {
-        // 1. Fetch current file content + sha
         const b = branch || repoCtx.branch || 'main';
         const getRes = await fetch(
           `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/contents/${path}?ref=${b}`,
           { headers: ghHeaders() }
         );
-        if (!getRes.ok) return { error: `Cannot read ${path} from GitHub: ${getRes.status}` };
+        if (!getRes.ok) return { error: `Cannot read ${path}: ${getRes.status}` };
         const fileData = await getRes.json();
-        const currentContent = Buffer.from(fileData.content, 'base64').toString('utf-8');
-
-        // 2. Apply str_replace
-        if (!currentContent.includes(old_str)) {
+        const current = Buffer.from(fileData.content, 'base64').toString('utf-8');
+        if (!current.includes(old_str)) {
           const preview = old_str.slice(0, 60).replace(/\n/g, '↵');
           return { error: `old_str not found in ${path}. Searched for: "${preview}". Read the file first.` };
         }
-        const updatedContent = currentContent.replace(old_str, new_str);
-
-        // 3. Commit to branch via GitHub API
+        const updated = current.replace(old_str, new_str);
         const token = process.env.GITHUB_TOKEN;
         if (!token) return { error: 'GITHUB_TOKEN not configured' };
-
         const putRes = await fetch(
           `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/contents/${path}`,
           {
@@ -144,7 +240,7 @@ async function executeAction(action, conv) {
             headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({
               message: commit_message || `edit: update ${path}`,
-              content: Buffer.from(updatedContent).toString('base64'),
+              content: Buffer.from(updated).toString('base64'),
               sha: fileData.sha,
               branch: b
             })
@@ -155,37 +251,27 @@ async function executeAction(action, conv) {
           return { error: err.message || `GitHub PUT failed: ${putRes.status}` };
         }
         const result = await putRes.json();
-        return {
-          success: true,
-          path,
-          branch: b,
-          commitSha: result.commit?.sha,
-          commitUrl: result.commit?.html_url,
-          replacements: 1
-        };
-      } else {
-        // Local filesystem
-        return patchLocalFile(path, old_str, new_str);
+        conv.lastEditBranch = b;
+        conv.testsPassed = false; // edits invalidate previous test results
+        return { success: true, path, branch: b, commitSha: result.commit?.sha, commitUrl: result.commit?.html_url };
       }
+      conv.testsPassed = false;
+      return patchLocalFile(path, old_str, new_str);
     }
 
+    // ── create_branch ────────────────────────────────────────────────────────
     case 'create_branch': {
       const { branch, from = 'main' } = action;
       if (!branch) return { error: 'branch name is required' };
-
       if (repoCtx?.owner) {
         const token = process.env.GITHUB_TOKEN;
         if (!token) return { error: 'GITHUB_TOKEN not configured' };
-
-        // Get SHA of source branch
         const refRes = await fetch(
           `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/git/ref/heads/${from}`,
           { headers: ghHeaders() }
         );
         if (!refRes.ok) return { error: `Source branch "${from}" not found` };
-        const refData = await refRes.json();
-        const sha = refData.object.sha;
-
+        const sha = (await refRes.json()).object.sha;
         const createRes = await fetch(
           `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/git/refs`,
           {
@@ -196,54 +282,142 @@ async function executeAction(action, conv) {
         );
         if (!createRes.ok) {
           const err = await createRes.json();
-          // Branch may already exist — that's fine
-          if (err.message?.includes('already exists')) return { success: true, branch, from, note: 'branch already existed' };
-          return { error: err.message || `GitHub branch creation failed: ${createRes.status}` };
+          if (err.message?.includes('already exists')) return { success: true, branch, from, note: 'already existed' };
+          return { error: err.message || `Branch creation failed: ${createRes.status}` };
         }
         return { success: true, branch, from, sha };
+      }
+      const { createBranch } = await import('../../../../services/git/branch.js');
+      return createBranch(branch);
+    }
+
+    // ── run_tests ────────────────────────────────────────────────────────────
+    case 'run_tests': {
+      const { branch, test_command } = action;
+      if (!repoCtx?.owner) {
+        // Local: just run the command
+        if (!test_command) return { error: 'test_command required for local repos' };
+        const r = await runShellCommand(test_command, process.cwd());
+        const passed = r.exitCode === 0 && !r.stderr?.includes('FAIL');
+        conv.testsPassed = passed;
+        return { ...r, passed, stdout: trim4k(r.stdout), stderr: trim4k(r.stderr) };
+      }
+
+      const token = process.env.GITHUB_TOKEN;
+      if (!token) return { error: 'GITHUB_TOKEN required to clone for testing' };
+
+      const b = branch || conv.lastEditBranch || repoCtx.branch || 'main';
+      const cloneDir = `/tmp/apex-clones/${repoCtx.owner}-${repoCtx.repo}`;
+
+      // Clone or update
+      const { existsSync } = await import('fs');
+      if (existsSync(`${cloneDir}/.git`)) {
+        await runShellCommand(`git fetch origin && git checkout ${b} && git reset --hard origin/${b}`, cloneDir);
       } else {
-        // Local git
-        const { createBranch } = await import('../../../../services/git/branch.js');
-        return createBranch(branch);
+        const cloneUrl = `https://${token}@github.com/${repoCtx.owner}/${repoCtx.repo}.git`;
+        const cloneRes = await runShellCommand(
+          `git clone --depth 10 --branch ${b} ${cloneUrl} ${cloneDir}`,
+          '/tmp'
+        );
+        if (!cloneRes.success) return { error: `Clone failed: ${cloneRes.stderr}` };
       }
-    }
 
-    case 'run_local': {
-      const { command, cwd } = action;
-      if (!command) return { error: 'command is required' };
-      const result = await runShellCommand(command, cwd);
-      // Trim long output
-      const trim = s => s && s.length > 3000 ? s.slice(0, 3000) + '\n…(truncated)' : s;
-      return { ...result, stdout: trim(result.stdout), stderr: trim(result.stderr) };
-    }
+      // Detect test command
+      let cmd = test_command;
+      if (!cmd) {
+        const pkgRes = await runShellCommand('cat package.json 2>/dev/null', cloneDir);
+        if (pkgRes.success && pkgRes.stdout) {
+          try {
+            const pkg = JSON.parse(pkgRes.stdout);
+            if (pkg.scripts?.test && pkg.scripts.test !== 'echo "Error: no test specified"') {
+              const hasPnpm = (await runShellCommand('which pnpm', cloneDir)).success;
+              cmd = hasPnpm ? 'pnpm test' : 'npm test';
+            }
+          } catch {}
+        }
+        if (!cmd) {
+          const pytest = await runShellCommand('which pytest', cloneDir);
+          if (pytest.success) cmd = 'pytest';
+        }
+        if (!cmd) {
+          const gomod = await runShellCommand('test -f go.mod && echo yes', cloneDir);
+          if (gomod.stdout.trim() === 'yes') cmd = 'go test ./...';
+        }
+        if (!cmd) return { error: 'Could not detect test command. Specify test_command explicitly.', cloneDir };
 
-    case 'run_vps': {
-      const { session_id, command } = action;
-      if (!session_id || !command) return { error: 'session_id and command are required' };
-
-      const session = vpsSessions.get(session_id);
-      if (!session) return { error: `VPS session "${session_id}" not found. Check active sessions.` };
-
-      const { NodeSSH } = await import('node-ssh');
-      const ssh = new NodeSSH();
-      try {
-        await ssh.connect({
-          host: session.host,
-          port: session.port || 22,
-          username: session.username,
-          privateKey: session.privateKey,
-          readyTimeout: 10000
-        });
-        const r = await ssh.execCommand(command);
-        ssh.dispose();
-        const trim = s => s && s.length > 3000 ? s.slice(0, 3000) + '\n…(truncated)' : s;
-        return { stdout: trim(r.stdout), stderr: trim(r.stderr), code: r.code };
-      } catch (err) {
-        if (ssh.isConnected()) ssh.dispose();
-        return { error: err.message };
+        // Install deps first
+        const hasPnpm2 = (await runShellCommand('which pnpm', cloneDir)).success;
+        const installCmd = hasPnpm2 ? 'pnpm install --frozen-lockfile 2>&1 || pnpm install' : 'npm install';
+        await runShellCommand(installCmd, cloneDir);
       }
+
+      const result = await runShellCommand(cmd, cloneDir);
+      const passed = result.exitCode === 0;
+      conv.testsPassed = passed;
+
+      return {
+        branch: b,
+        command: cmd,
+        passed,
+        exitCode: result.exitCode,
+        stdout: trim4k(result.stdout),
+        stderr: trim4k(result.stderr)
+      };
     }
 
+    // ── create_pull_request ──────────────────────────────────────────────────
+    case 'create_pull_request': {
+      const { branch, title, body = '', base = 'main' } = action;
+      if (!branch || !title) return { error: 'branch and title are required' };
+
+      if (!repoCtx?.owner) return { error: 'create_pull_request requires a loaded GitHub repository' };
+
+      // Enforce test requirement
+      if (!conv.testsPassed) {
+        return {
+          error: 'Tests have not passed. You must call run_tests first and they must pass before creating a pull request.',
+          hint: 'Call run_tests with the feature branch, ensure all tests pass, then call create_pull_request.'
+        };
+      }
+
+      const token = process.env.GITHUB_TOKEN;
+      if (!token) return { error: 'GITHUB_TOKEN not configured' };
+
+      const res = await fetch(
+        `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/pulls`,
+        {
+          method: 'POST',
+          headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, body, head: branch, base })
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        return { error: err.message || `PR creation failed: ${res.status}` };
+      }
+      const pr = await res.json();
+      conv.testsPassed = false; // reset after PR
+      return { success: true, prNumber: pr.number, url: pr.html_url, title: pr.title, branch, base };
+    }
+
+    // ── git_diff ─────────────────────────────────────────────────────────────
+    case 'git_diff': {
+      const { base = 'main', head, cwd } = action;
+      if (repoCtx?.owner) {
+        const h = head || conv.lastEditBranch || repoCtx.branch || 'main';
+        const res = await fetch(
+          `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/compare/${base}...${h}`,
+          { headers: { ...ghHeaders(), Accept: 'application/vnd.github.diff' } }
+        );
+        if (!res.ok) return { error: `GitHub compare failed: ${res.status}` };
+        const diff = await res.text();
+        return { diff: diff.slice(0, 6000), base, head: h };
+      }
+      const { generateDiff } = await import('../../../../services/git/diff.js');
+      return generateDiff(base, head, cwd);
+    }
+
+    // ── list_files ───────────────────────────────────────────────────────────
     case 'list_files': {
       const { path = '' } = action;
       if (repoCtx?.owner) {
@@ -258,92 +432,52 @@ async function executeAction(action, conv) {
           ? data.map(e => ({ name: e.name, type: e.type, path: e.path, size: e.size }))
           : [{ name: data.name, type: data.type }];
         return { path: path || '/', entries };
-      } else {
-        return listLocalDir(path || '.');
+      }
+      return listLocalDir(path || '.');
+    }
+
+    // ── run_local ────────────────────────────────────────────────────────────
+    case 'run_local': {
+      const { command, cwd } = action;
+      if (!command) return { error: 'command is required' };
+      const r = await runShellCommand(command, cwd);
+      return { ...r, stdout: trim4k(r.stdout), stderr: trim4k(r.stderr) };
+    }
+
+    // ── run_vps ──────────────────────────────────────────────────────────────
+    case 'run_vps': {
+      const { session_id, command } = action;
+      if (!session_id || !command) return { error: 'session_id and command are required' };
+      const session = vpsSessions.get(session_id);
+      if (!session) return { error: `VPS session "${session_id}" not found` };
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({ host: session.host, port: session.port || 22, username: session.username, privateKey: session.privateKey, readyTimeout: 10000 });
+        const r = await ssh.execCommand(command);
+        ssh.dispose();
+        return { stdout: trim4k(r.stdout), stderr: trim4k(r.stderr), code: r.code };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
       }
     }
 
-    case 'git_diff': {
-      const { base = 'main', head, cwd } = action;
-      if (repoCtx?.owner) {
-        const h = head || repoCtx.branch || 'main';
-        const res = await fetch(
-          `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/compare/${base}...${h}`,
-          { headers: { ...ghHeaders(), Accept: 'application/vnd.github.diff' } }
-        );
-        if (!res.ok) return { error: `GitHub compare failed: ${res.status}` };
-        const diff = await res.text();
-        return { diff: diff.slice(0, 5000), base, head: h };
-      } else {
-        const { generateDiff } = await import('../../../../services/git/diff.js');
-        return generateDiff(base, head, cwd);
-      }
+    // ── recall_memory ────────────────────────────────────────────────────────
+    case 'recall_memory': {
+      if (!repoCtx?.owner) return { error: 'No repo loaded — memory is per-project' };
+      const { getMemory } = await import('../../../../services/memory/project-memory.js');
+      const mem = await getMemory(repoCtx.owner, repoCtx.repo);
+      return mem;
     }
 
-    case 'search_repo': {
-      const { query, path: searchPath, language } = action;
-      if (!query) return { error: 'query is required' };
-
-      if (repoCtx?.owner) {
-        // GitHub Code Search API
-        const repoFilter = `repo:${repoCtx.owner}/${repoCtx.repo}`;
-        const langFilter = language ? `+language:${language}` : '';
-        const pathFilter = searchPath ? `+path:${searchPath}` : '';
-        const q = encodeURIComponent(`${query} ${repoFilter}${langFilter}${pathFilter}`.trim());
-
-        const res = await fetch(
-          `https://api.github.com/search/code?q=${q}&per_page=15`,
-          { headers: ghHeaders() }
-        );
-        if (!res.ok) {
-          // GitHub search may be rate-limited — tell AI to fall back
-          return {
-            error: `GitHub code search failed (${res.status}) — try list_files to browse directories, then read_file on likely candidates`,
-            query
-          };
-        }
-        const data = await res.json();
-        return {
-          query,
-          totalCount: data.total_count,
-          results: data.items.slice(0, 15).map(item => ({
-            path: item.path,
-            name: item.name,
-            score: item.score
-          }))
-        };
-      } else {
-        // Local grep search across common source file extensions
-        const dir = searchPath || '.';
-        const escaped = query.replace(/"/g, '\\"').replace(/`/g, '\\`');
-        const includes = [
-          '--include="*.js"', '--include="*.jsx"', '--include="*.ts"', '--include="*.tsx"',
-          '--include="*.py"', '--include="*.go"', '--include="*.rs"', '--include="*.java"',
-          '--include="*.rb"', '--include="*.php"', '--include="*.c"', '--include="*.cpp"',
-          '--include="*.sh"', '--include="*.json"', '--include="*.yaml"', '--include="*.yml"'
-        ].join(' ');
-
-        // First: get list of matching files
-        const filesResult = await runShellCommand(
-          `grep -r ${includes} -l "${escaped}" "${dir}" 2>/dev/null | head -20`,
-          process.cwd()
-        );
-        const files = filesResult.stdout.trim().split('\n').filter(Boolean);
-
-        // Then: get matching lines (with line numbers) for top 8 files
-        const matches = await Promise.all(files.slice(0, 8).map(async file => {
-          const lineResult = await runShellCommand(
-            `grep -n "${escaped}" "${file}" 2>/dev/null | head -6`,
-            process.cwd()
-          );
-          return {
-            path: file,
-            lines: lineResult.stdout.trim().split('\n').filter(Boolean)
-          };
-        }));
-
-        return { query, totalCount: files.length, results: matches };
-      }
+    // ── add_memory ───────────────────────────────────────────────────────────
+    case 'add_memory': {
+      const { fact } = action;
+      if (!fact) return { error: 'fact is required' };
+      if (!repoCtx?.owner) return { error: 'No repo loaded — memory is per-project' };
+      const facts = await addFact(repoCtx.owner, repoCtx.repo, fact);
+      return { success: true, totalFacts: facts.length };
     }
 
     default:
@@ -351,24 +485,12 @@ async function executeAction(action, conv) {
   }
 }
 
-// ── Action parser ────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function parseActions(text) {
-  const actions = [];
-  const regex = /```apex-action\n([\s\S]*?)\n```/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    try {
-      const action = JSON.parse(match[1].trim());
-      actions.push({ raw: match[0], action });
-    } catch (e) {
-      actions.push({ raw: match[0], parseError: `Invalid JSON in action block: ${e.message}` });
-    }
-  }
-  return actions;
+function trim4k(s) {
+  if (!s) return s;
+  return s.length > 4000 ? s.slice(0, 4000) + '\n…(truncated)' : s;
 }
-
-// ── GitHub helper ─────────────────────────────────────────────────────────────
 
 function ghHeaders() {
   const token = process.env.GITHUB_TOKEN;
@@ -379,35 +501,77 @@ function ghHeaders() {
   };
 }
 
-// ── Agent loop ───────────────────────────────────────────────────────────────
+function parseActions(text) {
+  const actions = [];
+  const regex = /```apex-action\n([\s\S]*?)\n```/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    try {
+      actions.push({ raw: match[0], action: JSON.parse(match[1].trim()) });
+    } catch (e) {
+      actions.push({ raw: match[0], parseError: `Invalid JSON: ${e.message}` });
+    }
+  }
+  return actions;
+}
+
+async function buildSystemPrompt(repoCtx) {
+  let system = BASE_SYSTEM;
+  if (repoCtx?.owner) {
+    system += `\n\n---\n**Loaded repo**: ${repoCtx.owner}/${repoCtx.repo} (branch: ${repoCtx.branch || 'main'})\n`;
+    if (repoCtx.description) system += `Description: ${repoCtx.description}\n`;
+    if (repoCtx.language)    system += `Primary language: ${repoCtx.language}\n`;
+    if (repoCtx.files?.length) {
+      system += `\nFile tree (${repoCtx.fileCount} files):\n${repoCtx.files.map(f => f.path).join('\n')}\n`;
+    }
+    if (repoCtx.readme) system += `\nREADME (excerpt):\n${repoCtx.readme}\n`;
+
+    const memPrompt = await formatMemoryForPrompt(repoCtx.owner, repoCtx.repo);
+    if (memPrompt) system += `\n\n---\n${memPrompt}\n---`;
+  }
+  return system;
+}
+
+// ── Core agent loop (streaming) ───────────────────────────────────────────────
 
 const MAX_ITERATIONS = 8;
+const MAX_TEST_RETRIES = 3;
 
-async function runAgentLoop(apiKey, conv, initialUserMessage) {
-  const { messages } = conv;
-  messages.push({ role: 'user', content: initialUserMessage });
+async function runAgentLoop(apiKey, conv, initialUserMessage, emitters = {}) {
+  const { emitToken = () => {}, emitAction = () => {}, emitProgress = () => {} } = emitters;
+
+  conv.messages.push({ role: 'user', content: initialUserMessage });
+  await dbSaveMessage(conv.id, 'user', initialUserMessage);
 
   const executedActions = [];
   let finalResponse = '';
   let iterations = 0;
+  let testRetries = 0;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
+    emitProgress(`Thinking (iteration ${iterations})…`);
 
-    const result = await runDeepSeekChat({ apiKey, messages });
-    const reply = result.choices?.[0]?.message?.content;
-    if (!reply) throw new Error('Empty response from DeepSeek');
+    // Stream tokens from DeepSeek
+    let replyContent = '';
+    for await (const chunk of runDeepSeekStream({ apiKey, messages: conv.messages })) {
+      if (chunk.done) break;
+      replyContent += chunk.content;
+      emitToken(chunk.content);
+    }
 
-    const parsedActions = parseActions(reply);
+    if (!replyContent) throw new Error('Empty response from DeepSeek');
+
+    const parsedActions = parseActions(replyContent);
 
     if (parsedActions.length === 0) {
-      // No actions — this is the final answer
-      messages.push({ role: 'assistant', content: reply });
-      finalResponse = reply;
+      conv.messages.push({ role: 'assistant', content: replyContent });
+      await dbSaveMessage(conv.id, 'assistant', replyContent);
+      finalResponse = replyContent;
       break;
     }
 
-    // Execute all actions and collect results
+    // Execute actions
     const actionResults = [];
     for (const { raw, action, parseError } of parsedActions) {
       if (parseError) {
@@ -416,15 +580,23 @@ async function runAgentLoop(apiKey, conv, initialUserMessage) {
         continue;
       }
 
+      emitProgress(`Executing ${action.type}…`);
+      emitAction({ type: action.type, params: action });
+
       const result = await executeAction(action, conv);
       actionResults.push({ type: action.type, params: action, result });
       executedActions.push({ type: action.type, params: action, result });
+
+      // If run_tests failed and we have retries, allow AI to fix
+      if (action.type === 'run_tests' && !result.passed && testRetries < MAX_TEST_RETRIES) {
+        testRetries++;
+        emitProgress(`Tests failed — retry ${testRetries}/${MAX_TEST_RETRIES}…`);
+      }
     }
 
-    // Add AI's response (with action blocks) to history
-    messages.push({ role: 'assistant', content: reply });
+    conv.messages.push({ role: 'assistant', content: replyContent });
+    await dbSaveMessage(conv.id, 'assistant', replyContent, executedActions.slice(-parsedActions.length));
 
-    // Inject action results back into the conversation
     const resultSummary = actionResults.map((r, i) => {
       const label = `[Action ${i + 1}: ${r.type}]`;
       if (r.error) return `${label}\nError: ${r.error}`;
@@ -434,22 +606,75 @@ async function runAgentLoop(apiKey, conv, initialUserMessage) {
       return `${label}\n${JSON.stringify(r.result, null, 2)}`;
     }).join('\n\n');
 
-    messages.push({ role: 'user', content: `[Action Results]\n${resultSummary}\n\nContinue based on these results.` });
+    conv.messages.push({ role: 'user', content: `[Action Results]\n${resultSummary}\n\nContinue.` });
   }
 
   if (!finalResponse && iterations >= MAX_ITERATIONS) {
-    finalResponse = 'Reached maximum action iterations. Review the executed actions above.';
-    messages.push({ role: 'assistant', content: finalResponse });
+    finalResponse = 'Reached maximum iterations. Review the executed actions above.';
+    conv.messages.push({ role: 'assistant', content: finalResponse });
   }
 
   return { finalResponse, executedActions, iterations };
 }
 
+// ── Job runner (registered with worker) ──────────────────────────────────────
+
+async function runAiJob(job, emitters) {
+  const { message, conversationId, repoContext, fileContext, sshKey } = job.payload;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) throw new Error('DEEPSEEK_API_KEY not configured');
+
+  const id = conversationId;
+  let conv = conversations.get(id);
+
+  if (!conv) {
+    // Try to restore from DB
+    const dbMessages = await dbLoadMessages(id);
+    const dbConv = await queryOne('SELECT * FROM conversations WHERE id=$1', [id]).catch(() => null);
+    const savedRepoCtx = dbConv ? {
+      owner: dbConv.repo_owner, repo: dbConv.repo_name, branch: dbConv.repo_branch
+    } : null;
+
+    const repoCtx = repoContext || savedRepoCtx;
+    const systemContent = await buildSystemPrompt(repoCtx);
+
+    conv = {
+      id,
+      messages: dbMessages && dbMessages.length > 0
+        ? [{ role: 'system', content: systemContent }, ...dbMessages]
+        : [{ role: 'system', content: systemContent }],
+      repoCtx,
+      testsPassed: false,
+      lastEditBranch: null,
+      sshKey: sshKey || dbConv?.ssh_key || null
+    };
+    conversations.set(id, conv);
+  }
+
+  if (repoContext && !conv.repoCtx) {
+    conv.repoCtx = repoContext;
+    conv.messages[0].content = await buildSystemPrompt(repoContext);
+  }
+
+  let userMessage = message;
+  if (fileContext) {
+    userMessage = `[File: ${fileContext.path}]\n\`\`\`\n${fileContext.content}\n\`\`\`\n\n${message}`;
+  }
+
+  const { finalResponse, executedActions, iterations } = await runAgentLoop(
+    apiKey, conv, userMessage, emitters
+  );
+
+  return { response: finalResponse, executedActions, iterations, conversationId: id };
+}
+
+registerJobRunner(runAiJob);
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-router.post('/chat', async (req, res) => {
-  const { message, conversationId, repoContext, fileContext } = req.body;
-
+// POST /orchestrator/chat — enqueue AI task as background job
+router.post('/chat', requireAuth, async (req, res) => {
+  const { message, conversationId, repoContext, fileContext, sshKey } = req.body;
   if (!message) return res.status(400).json({ error: 'message is required' });
 
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -457,34 +682,23 @@ router.post('/chat', async (req, res) => {
 
   const id = conversationId || Math.random().toString(36).slice(2);
 
+  // Create conversation if new
   if (!conversations.has(id)) {
-    let systemContent = BASE_SYSTEM;
-
-    if (repoContext) {
-      systemContent += `\n\n---\nLoaded repository: ${repoContext.owner}/${repoContext.repo} (branch: ${repoContext.branch})\n`;
-      if (repoContext.description) systemContent += `Description: ${repoContext.description}\n`;
-      if (repoContext.language)    systemContent += `Primary language: ${repoContext.language}\n`;
-      systemContent += `\nFile tree (${repoContext.fileCount} files):\n${repoContext.files.map(f => f.path).join('\n')}\n`;
-      if (repoContext.readme)      systemContent += `\nREADME (excerpt):\n${repoContext.readme}\n`;
-      systemContent += `---`;
-    }
-
+    const systemContent = await buildSystemPrompt(repoContext || null);
     conversations.set(id, {
+      id,
       messages: [{ role: 'system', content: systemContent }],
-      repoCtx: repoContext || null
+      repoCtx: repoContext || null,
+      testsPassed: false,
+      lastEditBranch: null,
+      sshKey: sshKey || null
     });
+    await dbSaveConversation(id, repoContext || null, sshKey || null);
   }
 
   const conv = conversations.get(id);
-
-  // Update repoCtx if a new one was provided (repo reload)
   if (repoContext && !conv.repoCtx) conv.repoCtx = repoContext;
-
-  // Prepend file context to the user message if provided
-  let userMessage = message;
-  if (fileContext) {
-    userMessage = `[File loaded: ${fileContext.path}]\n\`\`\`\n${fileContext.content}\n\`\`\`\n\n${message}`;
-  }
+  if (sshKey) conv.sshKey = sshKey;
 
   const wf = addWorkflow({
     title: message.slice(0, 72) + (message.length > 72 ? '…' : ''),
@@ -493,55 +707,41 @@ router.post('/chat', async (req, res) => {
     type: 'ai-task'
   });
 
-  try {
-    const { finalResponse, executedActions, iterations } = await runAgentLoop(apiKey, conv, userMessage);
+  const jobId = await enqueue('ai-task', { message, conversationId: id, repoContext, fileContext, sshKey });
 
-    updateWorkflow(wf.id, {
-      status: 'completed',
-      description: `${executedActions.length} action(s) in ${iterations} iteration(s)`
-    });
+  updateWorkflow(wf.id, { status: 'running', description: `Job ${jobId}` });
 
-    res.json({
-      response: finalResponse,
-      conversationId: id,
-      executedActions,
-      iterations,
-      workflowId: wf.id
-    });
-  } catch (err) {
-    console.error('Agent loop error:', err.message);
-    updateWorkflow(wf.id, { status: 'failed', description: err.message });
-    // Pop the last user message if AI never responded
-    if (conv.messages.at(-1)?.role === 'user') conv.messages.pop();
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ jobId, conversationId: id, workflowId: wf.id });
 });
 
-// Inject a new repo context into an existing conversation
-router.post('/context/repo', (req, res) => {
+// GET /orchestrator/conversations/:id — fetch conversation history
+router.get('/conversations/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const dbMessages = await dbLoadMessages(id).catch(() => null);
+  if (dbMessages) return res.json({ conversationId: id, messages: dbMessages });
+
+  const conv = conversations.get(id);
+  if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+  res.json({ conversationId: id, messages: conv.messages.filter(m => m.role !== 'system') });
+});
+
+// POST /orchestrator/context/repo — inject repo context into existing conversation
+router.post('/context/repo', requireAuth, (req, res) => {
   const { conversationId, repoContext } = req.body;
   const conv = conversations.get(conversationId);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
-
   conv.repoCtx = repoContext;
-  const summary = `[Repository context updated: ${repoContext.owner}/${repoContext.repo}]\nFiles: ${repoContext.files.map(f => f.path).join(', ')}`;
+  const summary = `[Repo updated: ${repoContext.owner}/${repoContext.repo}]`;
   conv.messages.push({ role: 'user', content: summary });
-  conv.messages.push({
-    role: 'assistant',
-    content: `Got it. I now have context for \`${repoContext.owner}/${repoContext.repo}\` (${repoContext.fileCount} files on branch \`${repoContext.branch}\`). What would you like me to do?`
-  });
-
+  conv.messages.push({ role: 'assistant', content: `Got it. I now have context for \`${repoContext.owner}/${repoContext.repo}\` (${repoContext.fileCount} files on \`${repoContext.branch}\`). What would you like me to do?` });
   res.json({ success: true });
 });
 
-router.post('/run', async (req, res) => {
+// POST /orchestrator/run — legacy
+router.post('/run', requireAuth, async (req, res) => {
+  const { runTask } = await import('../../../../services/orchestrator/runtime.js');
   const result = await runTask(req.body.task, req.body.context || {});
   res.json(result);
-});
-
-router.post('/context', (req, res) => {
-  const context = assembleContext(req.body);
-  res.json(context);
 });
 
 export default router;

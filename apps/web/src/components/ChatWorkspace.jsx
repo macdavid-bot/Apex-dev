@@ -1,27 +1,22 @@
 import { useEffect, useRef } from 'react';
 import './ChatWorkspace.css';
 
-// Minimal markdown renderer — code blocks, inline code, bold, headers, lists
+// ── Markdown renderer ──────────────────────────────────────────────────────────
 function renderMarkdown(text) {
   if (!text) return null;
   const lines = text.split('\n');
   const elements = [];
-  let i = 0;
-  let key = 0;
+  let i = 0; let key = 0;
 
   while (i < lines.length) {
     const line = lines[i];
 
-    // Fenced code block (including apex-action blocks — show as collapsed)
+    // Fenced code block
     if (line.startsWith('```')) {
       const lang = line.slice(3).trim();
       const codeLines = [];
       i++;
-      while (i < lines.length && !lines[i].startsWith('```')) {
-        codeLines.push(lines[i]);
-        i++;
-      }
-      // Skip apex-action blocks in rendered output (they're shown as ActionSteps)
+      while (i < lines.length && !lines[i].startsWith('```')) { codeLines.push(lines[i]); i++; }
       if (lang !== 'apex-action') {
         elements.push(
           <div key={key++} className="md-code-block">
@@ -30,95 +25,101 @@ function renderMarkdown(text) {
           </div>
         );
       }
-      i++;
-      continue;
+      i++; continue;
     }
 
     // Heading
-    const headingMatch = line.match(/^(#{1,3})\s+(.*)/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const Tag = `h${level + 2}`;
-      elements.push(<Tag key={key++} className="md-heading">{inlineFormat(headingMatch[2])}</Tag>);
-      i++;
-      continue;
+    const hMatch = line.match(/^(#{1,3})\s+(.*)/);
+    if (hMatch) {
+      const lvl = hMatch[1].length;
+      const Tag = `h${lvl + 2}`;
+      elements.push(<Tag key={key++} className="md-heading">{inlineFormat(hMatch[2])}</Tag>);
+      i++; continue;
     }
 
+    // Horizontal rule
+    if (line.match(/^---+$/)) { elements.push(<hr key={key++} className="md-hr" />); i++; continue; }
+
     // Unordered list
-    const listMatch = line.match(/^[-*]\s+(.*)/);
-    if (listMatch) {
+    if (line.match(/^[-*]\s+(.*)/)) {
       const items = [];
       while (i < lines.length && lines[i].match(/^[-*]\s+(.*)/)) {
-        items.push(lines[i].match(/^[-*]\s+(.*)/)[1]);
-        i++;
+        items.push(lines[i].match(/^[-*]\s+(.*)/)[1]); i++;
       }
-      elements.push(
-        <ul key={key++} className="md-list">
-          {items.map((item, j) => <li key={j}>{inlineFormat(item)}</li>)}
-        </ul>
-      );
+      elements.push(<ul key={key++} className="md-list">{items.map((it, j) => <li key={j}>{inlineFormat(it)}</li>)}</ul>);
       continue;
     }
 
     // Numbered list
-    const numListMatch = line.match(/^\d+\.\s+(.*)/);
-    if (numListMatch) {
+    if (line.match(/^\d+\.\s+(.*)/)) {
       const items = [];
       while (i < lines.length && lines[i].match(/^\d+\.\s+(.*)/)) {
-        items.push(lines[i].match(/^\d+\.\s+(.*)/)[1]);
+        items.push(lines[i].match(/^\d+\.\s+(.*)/)[1]); i++;
+      }
+      elements.push(<ol key={key++} className="md-list">{items.map((it, j) => <li key={j}>{inlineFormat(it)}</li>)}</ol>);
+      continue;
+    }
+
+    // Table
+    if (line.includes('|') && lines[i + 1]?.match(/^[\s|:-]+$/)) {
+      const rows = [];
+      while (i < lines.length && lines[i].includes('|')) {
+        if (!lines[i].match(/^[\s|:-]+$/)) rows.push(lines[i].split('|').filter(c => c.trim() !== '').map(c => c.trim()));
         i++;
       }
-      elements.push(
-        <ol key={key++} className="md-list">
-          {items.map((item, j) => <li key={j}>{inlineFormat(item)}</li>)}
-        </ol>
-      );
+      if (rows.length > 0) {
+        const [head, ...body] = rows;
+        elements.push(
+          <div key={key++} className="md-table-wrap">
+            <table className="md-table">
+              <thead><tr>{head.map((h, j) => <th key={j}>{inlineFormat(h)}</th>)}</tr></thead>
+              <tbody>{body.map((r, j) => <tr key={j}>{r.map((c, k) => <td key={k}>{inlineFormat(c)}</td>)}</tr>)}</tbody>
+            </table>
+          </div>
+        );
+      }
       continue;
     }
 
-    // Blank line
-    if (line.trim() === '') {
-      elements.push(<div key={key++} className="md-spacer" />);
-      i++;
-      continue;
-    }
-
+    if (line.trim() === '') { elements.push(<div key={key++} className="md-spacer" />); i++; continue; }
     elements.push(<p key={key++} className="md-para">{inlineFormat(line)}</p>);
     i++;
   }
-
   return elements;
 }
 
 function inlineFormat(text) {
   const parts = [];
-  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
-  let last = 0;
-  let match;
-  let k = 0;
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
+  let last = 0; let k = 0; let match;
   while ((match = regex.exec(text)) !== null) {
     if (match.index > last) parts.push(<span key={k++}>{text.slice(last, match.index)}</span>);
-    const token = match[0];
-    if (token.startsWith('**')) {
-      parts.push(<strong key={k++}>{token.slice(2, -2)}</strong>);
-    } else {
-      parts.push(<code key={k++} className="md-inline-code">{token.slice(1, -1)}</code>);
-    }
-    last = match.index + token.length;
+    const tok = match[0];
+    if (tok.startsWith('**'))      parts.push(<strong key={k++}>{tok.slice(2, -2)}</strong>);
+    else if (tok.startsWith('*'))  parts.push(<em key={k++}>{tok.slice(1, -1)}</em>);
+    else                           parts.push(<code key={k++} className="md-inline-code">{tok.slice(1, -1)}</code>);
+    last = match.index + tok.length;
   }
   if (last < text.length) parts.push(<span key={k++}>{text.slice(last)}</span>);
   return parts.length ? parts : text;
 }
 
+// ── Action display ─────────────────────────────────────────────────────────────
 const ACTION_ICONS = {
-  read_file:     '📂',
-  edit_file:     '✏️',
-  create_branch: '🌿',
-  run_local:     '⚡',
-  run_vps:       '🖥️',
-  list_files:    '📋',
-  git_diff:      '🔍',
-  parse_error:   '⚠️',
+  read_file:            '📂',
+  edit_file:            '✏️',
+  create_branch:        '🌿',
+  run_local:            '⚡',
+  run_vps:              '🖥️',
+  list_files:           '📋',
+  git_diff:             '🔍',
+  search_repo:          '🔎',
+  search_code_fts:      '🔎',
+  run_tests:            '🧪',
+  create_pull_request:  '🔀',
+  recall_memory:        '🧠',
+  add_memory:           '💾',
+  parse_error:          '⚠️',
 };
 
 function ActionSteps({ actions }) {
@@ -126,26 +127,34 @@ function ActionSteps({ actions }) {
   return (
     <div className="action-steps">
       {actions.map((a, i) => {
-        const icon = ACTION_ICONS[a.type] || '🔧';
+        const icon  = ACTION_ICONS[a.type] || '🔧';
         const isErr = !!(a.result?.error || a.type === 'parse_error');
-        let label = `${icon} ${a.type}`;
-        if (a.type === 'edit_file')     label = `${icon} Edited \`${a.params?.path}\` on \`${a.params?.branch || 'branch'}\``;
-        if (a.type === 'read_file')     label = `${icon} Read \`${a.params?.path}\``;
-        if (a.type === 'create_branch') label = `${icon} Created branch \`${a.params?.branch}\``;
-        if (a.type === 'run_local')     label = `${icon} Local: \`${(a.params?.command || '').slice(0, 60)}\``;
-        if (a.type === 'run_vps')       label = `${icon} VPS: \`${(a.params?.command || '').slice(0, 60)}\``;
-        if (a.type === 'list_files')    label = `${icon} Listed \`${a.params?.path || '/'}\``;
-        if (a.type === 'git_diff')      label = `${icon} Diff \`${a.params?.base}\`→\`${a.params?.head || 'HEAD'}\``;
+        let label   = `${icon} ${a.type}`;
+        if (a.type === 'edit_file')           label = `${icon} Edited \`${a.params?.path}\` → \`${a.params?.branch || 'branch'}\``;
+        if (a.type === 'read_file')           label = `${icon} Read \`${a.params?.path}\``;
+        if (a.type === 'create_branch')       label = `${icon} Branch \`${a.params?.branch}\``;
+        if (a.type === 'run_local')           label = `${icon} Local: \`${(a.params?.command || '').slice(0, 60)}\``;
+        if (a.type === 'run_vps')             label = `${icon} VPS: \`${(a.params?.command || '').slice(0, 60)}\``;
+        if (a.type === 'list_files')          label = `${icon} List \`${a.params?.path || '/'}\``;
+        if (a.type === 'git_diff')            label = `${icon} Diff \`${a.params?.base}\`→\`${a.params?.head || 'HEAD'}\``;
+        if (a.type === 'search_repo')         label = `${icon} Search: "${(a.params?.query || '').slice(0, 40)}"`;
+        if (a.type === 'search_code_fts')     label = `${icon} FTS: "${(a.params?.query || '').slice(0, 40)}"`;
+        if (a.type === 'run_tests')           label = `${icon} Tests → ${a.result?.passed ? '✅ passed' : '❌ failed'}`;
+        if (a.type === 'create_pull_request') label = `${icon} PR #${a.result?.prNumber || '?'}: ${(a.params?.title || '').slice(0, 40)}`;
+        if (a.type === 'recall_memory')       label = `${icon} Recalled project memory`;
+        if (a.type === 'add_memory')          label = `${icon} Remembered: "${(a.params?.fact || '').slice(0, 50)}"`;
 
-        const cmdOutput = (a.type === 'run_local' || a.type === 'run_vps') && !isErr
-          ? (a.result?.stdout || a.result?.stderr || '').slice(0, 400)
+        const cmdOutput = (a.type === 'run_local' || a.type === 'run_vps' || a.type === 'run_tests') && !isErr
+          ? ((a.result?.stdout || a.result?.stderr || '').slice(0, 600))
           : null;
+        const prUrl = a.type === 'create_pull_request' && a.result?.url;
 
         return (
           <div key={i} className={`action-step ${isErr ? 'action-step-err' : 'action-step-ok'}`}>
             <span className="action-step-label">{label}</span>
-            {isErr && <span className="action-step-detail">{a.result?.error || a.error}</span>}
-            {cmdOutput && <pre className="action-step-output">{cmdOutput}{(a.result?.stdout?.length > 400) ? '…' : ''}</pre>}
+            {isErr && <span className="action-step-detail">{a.result?.error || a.result?.hint || a.error}</span>}
+            {cmdOutput && <pre className="action-step-output">{cmdOutput}{((a.result?.stdout?.length || 0) > 600) ? '…' : ''}</pre>}
+            {prUrl && <a className="action-step-link" href={prUrl} target="_blank" rel="noreferrer">View PR ↗</a>}
           </div>
         );
       })}
@@ -153,12 +162,28 @@ function ActionSteps({ actions }) {
   );
 }
 
-export default function ChatWorkspace({ messages = [], loading = false }) {
+// ── Streaming indicator ────────────────────────────────────────────────────────
+function StreamingMessage({ content }) {
+  return (
+    <div className="message-row assistant">
+      <div className="message-bubble streaming-bubble">
+        {content ? (
+          <div className="message-md">{renderMarkdown(content)}<span className="stream-cursor" /></div>
+        ) : (
+          <div className="typing"><span /><span /><span /></div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+export default function ChatWorkspace({ messages = [], loading = false, streamingContent = '' }) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, loading, streamingContent]);
 
   return (
     <div className="chat-messages">
@@ -176,13 +201,10 @@ export default function ChatWorkspace({ messages = [], loading = false }) {
           </div>
         </div>
       ))}
-      {loading && (
-        <div className="message-row assistant">
-          <div className="message-bubble typing">
-            <span /><span /><span />
-          </div>
-        </div>
-      )}
+
+      {/* Live streaming response */}
+      {loading && <StreamingMessage content={streamingContent} />}
+
       <div ref={bottomRef} />
     </div>
   );

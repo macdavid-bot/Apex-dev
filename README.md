@@ -308,10 +308,23 @@ apex-dev/
 ├── .env.example
 └── README.md
 
-# New files since last tree update
+# New files (added since initial tree)
 
 apps/web/public/favicon.png              # App icon (custom brand mark)
-services/shell/session-store.js          # Shell sessions: persistent cwd tracking, cd support, history
+apps/web/src/pages/Login.jsx             # Login page (single-user auth gate)
+apps/web/src/pages/Login.css             # Login styles
+apps/web/src/hooks/useAuth.js            # Auth state hook (JWT localStorage + /auth/me)
+apps/api/src/routes/auth.js              # POST /auth/login, POST /auth/logout, GET /auth/me
+apps/api/src/routes/jobs.js              # GET /jobs, GET /jobs/:id, GET /jobs/:id/stream (SSE)
+apps/api/src/ws/terminal.js              # WebSocket real-time terminal (spawn + ws)
+services/auth/middleware.js              # requireAuth Express middleware (header / query param / cookie)
+services/db/client.js                    # PostgreSQL pool (pg) from DATABASE_URL; dbAvailable() graceful fallback
+services/db/migrations.js               # DDL: conversations, messages, job_queue, workflows, approvals, ssh_sessions, project_memory, code_chunks
+services/queue/store.js                  # DB-backed job queue (enqueue/claim/complete/fail); in-memory fallback
+services/queue/worker.js                 # Background worker: polls job_queue every 2s, runs AI tasks, emits SSE events
+services/memory/project-memory.js        # Per-project memory (facts + summary) in PostgreSQL; in-memory fallback
+services/embeddings/fts.js              # PostgreSQL full-text search (tsvector) for codebase indexing
+services/shell/session-store.js          # Shell sessions: persistent cwd tracking, cd support, 200-entry history
 ```
 
 ---
@@ -320,8 +333,14 @@ services/shell/session-store.js          # Shell sessions: persistent cwd tracki
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | Yes | AI agent loop, repair analysis |
-| `GITHUB_TOKEN` | Yes | GitHub API integration |
+| `DEEPSEEK_API_KEY` | Yes | AI agent loop and all AI features |
+| `DEEPSEEK_MODEL` | No | Model name (default: `deepseek-chat`) |
+| `GITHUB_TOKEN` | Yes | GitHub API — repo read/write/search |
+| `DATABASE_URL` | Recommended | VPS PostgreSQL connection string — enables persistence |
+| `DB_SSL` | No | Set `true` if VPS requires SSL |
+| `AUTH_USERNAME` | No | Login username (default: `mac_david`) |
+| `AUTH_PASSWORD` | No | Login password (default: `@Davidluiz4life`) |
+| `JWT_SECRET` | Recommended | JWT signing secret — use a long random string in production |
 | `PORT` | No | API port (default: 3000) |
 | `HOST` | No | API bind host (default: 0.0.0.0) |
 | `NODE_ENV` | No | `production` enables strict CORS |

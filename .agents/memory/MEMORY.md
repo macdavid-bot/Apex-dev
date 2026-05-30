@@ -1,2 +1,4 @@
-- [Apex Dev architecture](apex-dev-arch.md) — pnpm monorepo: apps/api (Express ESM) + apps/web (React/Vite); services/ shared across both
-- [Apex Dev wiring status](apex-dev-wiring.md) — all routes, services, and AI loop are fully wired; key constraints and patterns documented
+- [Auth & Storage Architecture](auth-storage.md) — single-user JWT auth + VPS PostgreSQL; both gracefully fall back (no DB → in-memory, no JWT_SECRET → insecure default with warning)
+- [Streaming & Background Jobs](streaming-jobs.md) — POST /orchestrator/chat enqueues to DB job_queue; worker polls every 2s; SSE via GET /jobs/:id/stream with EventEmitter; requireAuth accepts query ?token= for EventSource compatibility
+- [Real-time Terminal](terminal-ws.md) — WebSocket at /ws/terminal; child_process.spawn (not node-pty) for reliability; xterm.js on frontend; auth via ?token= query param
+- [Package Scope](pkg-scope.md) — shared services/ (services/db, services/auth, services/queue, services/memory, services/embeddings) must be installed at workspace root with pnpm add -w, not inside apps/api

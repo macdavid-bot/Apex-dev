@@ -1,35 +1,47 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import path from 'path';
+import http from 'http';
+import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
-import shellRoutes from './routes/shell.js';
-import approvalRoutes from './routes/approval.js';
-import validationRoutes from './routes/validation.js';
-import workspaceRoutes from './routes/workspace.js';
-import repositoryRoutes from './routes/repository.js';
-import contextRoutes from './routes/context.js';
-import orchestratorRoutes from './routes/orchestrator.js';
-import workflowRoutes from './routes/workflow.js';
-import gitRoutes from './routes/git.js';
+
+import { requireAuth }   from '../../../services/auth/middleware.js';
+import { runMigrations } from '../../../services/db/migrations.js';
+import { dbAvailable }   from '../../../services/db/client.js';
+import { startWorker }   from '../../../services/queue/worker.js';
+import { attachTerminalWS } from './ws/terminal.js';
+
+import authRoutes           from './routes/auth.js';
+import shellRoutes          from './routes/shell.js';
+import approvalRoutes       from './routes/approval.js';
+import validationRoutes     from './routes/validation.js';
+import workspaceRoutes      from './routes/workspace.js';
+import repositoryRoutes     from './routes/repository.js';
+import contextRoutes        from './routes/context.js';
+import orchestratorRoutes   from './routes/orchestrator.js';
+import workflowRoutes       from './routes/workflow.js';
+import gitRoutes            from './routes/git.js';
 import validationEngineRoutes from './routes/validation-engine.js';
-import deploymentRoutes from './routes/deployment.js';
-import terminalRoutes from './routes/terminal.js';
-import repairRoutes from './routes/repair.js';
-import memoryRoutes from './routes/memory.js';
-import systemRoutes from './routes/system.js';
-import githubRoutes from './routes/github.js';
-import vpsRoutes from './routes/vps.js';
-import filesRoutes from './routes/files.js';
+import deploymentRoutes     from './routes/deployment.js';
+import terminalRoutes       from './routes/terminal.js';
+import repairRoutes         from './routes/repair.js';
+import memoryRoutes         from './routes/memory.js';
+import systemRoutes         from './routes/system.js';
+import githubRoutes         from './routes/github.js';
+import vpsRoutes            from './routes/vps.js';
+import filesRoutes          from './routes/files.js';
+import jobsRoutes           from './routes/jobs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+const app    = express();
+const server = http.createServer(app);
+const PORT   = process.env.PORT || 3000;
+const HOST   = process.env.HOST || '0.0.0.0';
 const isProd = process.env.NODE_ENV === 'production';
 
-// ── Security & CORS ───────────────────────────────────────────────────────────
+// ── CORS ──────────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: isProd
     ? (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean)
@@ -37,92 +49,103 @@ app.use(cors({
   credentials: true
 }));
 
-// ── Body parsing ──────────────────────────────────────────────────────────────
+// ── Body / cookie parsing ──────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
 
-// ── Simple in-process rate limiting (per IP, no external dep needed) ──────────
+// ── Rate limiting ──────────────────────────────────────────────────────────────
 const rateLimitStore = new Map();
 app.use((req, res, next) => {
   const key = req.ip || 'unknown';
   const now = Date.now();
-  const window = 60_000; // 1 minute
-  const maxRequests = 300;
-
-  const entry = rateLimitStore.get(key) || { count: 0, resetAt: now + window };
-  if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + window; }
+  const entry = rateLimitStore.get(key) || { count: 0, resetAt: now + 60_000 };
+  if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + 60_000; }
   entry.count++;
   rateLimitStore.set(key, entry);
-
-  // Clean up old entries periodically
-  if (Math.random() < 0.01) {
-    for (const [k, v] of rateLimitStore) {
-      if (now > v.resetAt) rateLimitStore.delete(k);
-    }
-  }
-
-  if (entry.count > maxRequests) {
-    return res.status(429).json({ error: 'Too many requests — slow down.' });
-  }
+  if (Math.random() < 0.01) for (const [k, v] of rateLimitStore) if (now > v.resetAt) rateLimitStore.delete(k);
+  if (entry.count > 300) return res.status(429).json({ error: 'Too many requests' });
   next();
 });
 
-// ── Request logging (lightweight, no external dep) ───────────────────────────
-app.use((req, _res, next) => {
-  if (isProd) console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  next();
-});
+// ── Request logging ────────────────────────────────────────────────────────────
+if (isProd) app.use((req, _res, next) => { console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`); next(); });
 
-// ── Health check ──────────────────────────────────────────────────────────────
+// ── Health (public) ────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({
-    status: 'ok',
-    service: 'Apex Dev API',
-    version: '1.0.0',
+    status: 'ok', service: 'Apex Dev API', version: '1.0.0',
     env: process.env.NODE_ENV || 'development',
     uptime: Math.floor(process.uptime()),
-    aiConfigured: !!process.env.DEEPSEEK_API_KEY,
-    githubConfigured: !!process.env.GITHUB_TOKEN
+    aiConfigured:     !!process.env.DEEPSEEK_API_KEY,
+    githubConfigured: !!process.env.GITHUB_TOKEN,
+    dbConfigured:     !!process.env.DATABASE_URL
   });
 });
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/shell', shellRoutes);
-app.use('/approvals', approvalRoutes);
-app.use('/validation', validationRoutes);
-app.use('/workspace', workspaceRoutes);
-app.use('/repository', repositoryRoutes);
-app.use('/context', contextRoutes);
-app.use('/orchestrator', orchestratorRoutes);
-app.use('/workflow', workflowRoutes);
-app.use('/git', gitRoutes);
-app.use('/validation-engine', validationEngineRoutes);
-app.use('/deployment', deploymentRoutes);
-app.use('/terminal', terminalRoutes);
-app.use('/repair', repairRoutes);
-app.use('/memory', memoryRoutes);
-app.use('/system', systemRoutes);
-app.use('/github', githubRoutes);
-app.use('/vps', vpsRoutes);
-app.use('/files', filesRoutes);
+// ── Public routes ──────────────────────────────────────────────────────────────
+app.use('/auth', authRoutes);
 
-// ── Serve frontend in production (only when dist exists) ──────────────────────
+// ── Protected routes (require JWT) ────────────────────────────────────────────
+app.use('/shell',             requireAuth, shellRoutes);
+app.use('/approvals',         requireAuth, approvalRoutes);
+app.use('/validation',        requireAuth, validationRoutes);
+app.use('/workspace',         requireAuth, workspaceRoutes);
+app.use('/repository',        requireAuth, repositoryRoutes);
+app.use('/context',           requireAuth, contextRoutes);
+app.use('/orchestrator',      orchestratorRoutes);   // auth applied per-route inside
+app.use('/workflow',          requireAuth, workflowRoutes);
+app.use('/git',               requireAuth, gitRoutes);
+app.use('/validation-engine', requireAuth, validationEngineRoutes);
+app.use('/deployment',        requireAuth, deploymentRoutes);
+app.use('/terminal',          requireAuth, terminalRoutes);
+app.use('/repair',            requireAuth, repairRoutes);
+app.use('/memory',            requireAuth, memoryRoutes);
+app.use('/system',            requireAuth, systemRoutes);
+app.use('/github',            requireAuth, githubRoutes);
+app.use('/vps',               requireAuth, vpsRoutes);
+app.use('/files',             requireAuth, filesRoutes);
+app.use('/jobs',              jobsRoutes);           // auth applied per-route inside
+
+// ── WebSocket — real-time terminal ────────────────────────────────────────────
+const termWss = new WebSocketServer({ noServer: true });
+attachTerminalWS(termWss);
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+  if (pathname === '/ws/terminal') {
+    termWss.handleUpgrade(req, socket, head, ws => termWss.emit('connection', ws, req));
+  } else {
+    socket.destroy();
+  }
+});
+
+// ── Serve frontend in production ───────────────────────────────────────────────
 const distPath = path.resolve(__dirname, '../../../apps/web/dist');
 if (existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
+  app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
 }
 
-// ── Global error handler ──────────────────────────────────────────────────────
+// ── Error handler ──────────────────────────────────────────────────────────────
 app.use((err, req, res, _next) => {
   console.error(`[ERROR] ${req.method} ${req.path}:`, err.message);
   res.status(500).json({ error: isProd ? 'Internal server error' : err.message });
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`Apex Dev API running on http://${HOST}:${PORT} [${process.env.NODE_ENV || 'development'}]`);
-  if (!process.env.DEEPSEEK_API_KEY) console.warn('[WARN] DEEPSEEK_API_KEY not set — AI features disabled');
-  if (!process.env.GITHUB_TOKEN)     console.warn('[WARN] GITHUB_TOKEN not set — GitHub features limited');
+// ── Start ──────────────────────────────────────────────────────────────────────
+server.listen(PORT, HOST, async () => {
+  console.log(`Apex Dev API on http://${HOST}:${PORT} [${process.env.NODE_ENV || 'development'}]`);
+
+  if (!process.env.DEEPSEEK_API_KEY) console.warn('[WARN] DEEPSEEK_API_KEY not set');
+  if (!process.env.GITHUB_TOKEN)     console.warn('[WARN] GITHUB_TOKEN not set');
+  if (!process.env.DATABASE_URL)     console.warn('[WARN] DATABASE_URL not set — using in-memory fallbacks');
+
+  // DB migrations (non-blocking — app runs without DB)
+  if (await dbAvailable()) {
+    try { await runMigrations(); } catch (e) { console.error('[DB] Migration failed:', e.message); }
+  }
+
+  // Start background job worker
+  startWorker(2000);
 });

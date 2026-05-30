@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import ChatWorkspace from '../components/ChatWorkspace';
 import ApprovalPanel from '../components/ApprovalPanel';
 import DeploymentPanel from '../components/DeploymentPanel';
@@ -7,102 +7,187 @@ import TerminalPanel from '../components/TerminalPanel';
 import ValidationPanel from '../components/ValidationPanel';
 import WorkflowTimeline from '../components/WorkflowTimeline';
 import SSHKeyManager from '../components/SSHKeyManager';
+import { authHeaders, getToken } from '../hooks/useAuth';
 import './Dashboard.css';
 
 const TABS = [
-  { id: 'chat',       label: 'Chat',        icon: '💬' },
-  { id: 'workflows',  label: 'Workflows',   icon: '⚙️' },
-  { id: 'approvals',  label: 'Approvals',   icon: '✅' },
-  { id: 'repository', label: 'Repository',  icon: '📁' },
-  { id: 'terminal',   label: 'Terminal',    icon: '🖥️' },
-  { id: 'validation', label: 'Validation',  icon: '🔍' },
-  { id: 'deployment', label: 'Deployment',  icon: '🚀' },
-  { id: 'ssh',        label: 'SSH Keys',    icon: '🔑' },
+  { id: 'chat',       label: 'Chat',       icon: '💬' },
+  { id: 'workflows',  label: 'Workflows',  icon: '⚙️' },
+  { id: 'approvals',  label: 'Approvals',  icon: '✅' },
+  { id: 'repository', label: 'Repository', icon: '📁' },
+  { id: 'terminal',   label: 'Terminal',   icon: '🖥️' },
+  { id: 'validation', label: 'Validation', icon: '🔍' },
+  { id: 'deployment', label: 'Deployment', icon: '🚀' },
+  { id: 'ssh',        label: 'SSH Keys',   icon: '🔑' },
 ];
 
-export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState('chat');
-  const [sidebarOpen, setSidebar] = useState(true);
+export default function Dashboard({ user, onLogout }) {
+  const [activeTab, setActiveTab]   = useState('chat');
+  const [sidebarOpen, setSidebar]   = useState(true);
 
-  // Chat state
-  const [messages, setMessages]   = useState([
+  // Conversation state
+  const [messages, setMessages]     = useState([
     { role: 'assistant', content: 'Apex Dev initialized. How can I assist with your engineering tasks?' }
   ]);
-  const [input, setInput]         = useState('');
-  const [loading, setLoading]     = useState(false);
-  const [convId, setConvId]       = useState(null);
+  const [input, setInput]           = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [streaming, setStreaming]   = useState('');   // partial streamed text
+  const [convId, setConvId]         = useState(null);
+  const [repoCtx, setRepoCtx]       = useState(null);
+  const [fileCtx, setFileCtx]       = useState(null);
 
-  // Repo / file context (injected into AI on first message of a new conversation)
-  const [repoCtx, setRepoCtx]     = useState(null);   // set when user loads a repo
-  const [fileCtx, setFileCtx]     = useState(null);   // set when user opens a file
+  // New conversation modal — SSH key entry
+  const [showSshModal, setShowSshModal] = useState(false);
+  const [pendingMsg, setPendingMsg]     = useState('');
+  const [sshKeyInput, setSshKeyInput]   = useState('');
+  const sseRef = useRef(null);
 
-  // Called by RepositoryExplorer when a repo is loaded
   function handleRepoLoaded(repo) {
-    // Reset conversation so the new system prompt includes the repo tree
     setConvId(null);
     setRepoCtx(repo);
     setMessages([{
       role: 'assistant',
-      content: `Repository loaded: **${repo.owner}/${repo.repo}** (${repo.fileCount} files, ${repo.language || 'unknown language'})\n\nI now have the full file tree in context. You can ask me to:\n• Explain the codebase\n• Add a feature to a specific file\n• Review or refactor code\n• Plan a deployment\n\nOpen any file from the tree and say "edit this file" to start coding.`
+      content: `Repository loaded: **${repo.owner}/${repo.repo}** (${repo.fileCount} files, ${repo.language || 'unknown language'})\n\nI have the full file tree in context. I can:\n• Explain, review, or refactor code\n• Add features to specific files\n• Run tests and open pull requests\n\nOpen any file and say "edit this file" to start.`
     }]);
   }
 
-  // Called by RepositoryExplorer when a file is opened
-  function handleFileLoaded(file) {
-    setFileCtx(file);
+  function handleFileLoaded(file) { setFileCtx(file); }
+  function askAI(prompt) { setActiveTab('chat'); setInput(prompt); }
+
+  // Start a new chat (reset conversation)
+  function newChat() {
+    setConvId(null);
+    setStreaming('');
+    setMessages([{ role: 'assistant', content: 'New conversation started. How can I help?' }]);
+    sseRef.current?.close();
   }
 
-  // Send a message to AI, optionally with a prompt pre-filled
-  function askAI(prompt) {
-    setActiveTab('chat');
-    setInput(prompt);
+  async function sendMessage(text, sshKey = null) {
+    if (!text.trim() || loading) return;
+
+    const displayMsg = fileCtx ? `[Viewing: ${fileCtx.path}]\n${text}` : text;
+    setMessages(prev => [...prev, { role: 'user', content: displayMsg }]);
+    setInput('');
+    setLoading(true);
+    setStreaming('');
+
+    const isNewConv = !convId;
+
+    try {
+      const res = await fetch('/orchestrator/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          message: text,
+          conversationId: convId,
+          repoContext: isNewConv ? repoCtx : undefined,
+          fileContext: fileCtx || undefined,
+          sshKey: isNewConv ? sshKey : undefined
+        })
+      });
+
+      const data = await res.json();
+      setFileCtx(null);
+
+      if (!res.ok) {
+        setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.error || res.status}` }]);
+        setLoading(false);
+        return;
+      }
+
+      if (data.conversationId) setConvId(data.conversationId);
+
+      // Subscribe to live job stream
+      const jobId = data.jobId;
+      let accumulated = '';
+      let executedActions = [];
+
+      const evtSource = new EventSource(`/jobs/${jobId}/stream?token=${encodeURIComponent(getToken())}`);
+      sseRef.current = evtSource;
+
+      evtSource.addEventListener('connected', () => {});
+
+      evtSource.addEventListener('token', e => {
+        const { token } = JSON.parse(e.data);
+        accumulated += token;
+        setStreaming(accumulated);
+      });
+
+      evtSource.addEventListener('action', e => {
+        const { action } = JSON.parse(e.data);
+        executedActions.push(action);
+      });
+
+      evtSource.addEventListener('progress', e => {
+        const { progress } = JSON.parse(e.data);
+        setStreaming(prev => prev || `_${progress}_`);
+      });
+
+      evtSource.addEventListener('done', e => {
+        const result = JSON.parse(e.data);
+        evtSource.close();
+        sseRef.current = null;
+        setStreaming('');
+        const finalContent = result.result?.response || accumulated || 'Task completed.';
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: finalContent,
+          actions: result.result?.executedActions || executedActions
+        }]);
+        setLoading(false);
+      });
+
+      evtSource.addEventListener('error', e => {
+        evtSource.close();
+        sseRef.current = null;
+        const errData = e.data ? JSON.parse(e.data) : {};
+        setStreaming('');
+        if (accumulated) {
+          setMessages(prev => [...prev, { role: 'assistant', content: accumulated }]);
+        } else {
+          setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errData.error || 'Task failed'}` }]);
+        }
+        setLoading(false);
+      });
+
+      evtSource.onerror = () => {
+        // If SSE drops but we already got tokens, it might just be the stream closing
+        if (!evtSource.readyState === EventSource.CLOSED) return;
+        evtSource.close();
+        sseRef.current = null;
+        setStreaming('');
+        if (accumulated) {
+          setMessages(prev => [...prev, { role: 'assistant', content: accumulated }]);
+        }
+        setLoading(false);
+      };
+
+    } catch (e) {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Could not reach the API.' }]);
+      setLoading(false);
+    }
   }
 
   async function handleSend() {
     const text = input.trim();
     if (!text || loading) return;
 
-    const displayMsg = fileCtx
-      ? `[Viewing: ${fileCtx.path}]\n${text}`
-      : text;
-
-    setMessages(prev => [...prev, { role: 'user', content: displayMsg }]);
-    setInput('');
-    setLoading(true);
-
-    // Only send repoContext on the first message of a new conversation
-    const isNewConv = !convId;
-
-    try {
-      const res = await fetch('/orchestrator/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          conversationId: convId,
-          repoContext: isNewConv ? repoCtx : undefined,
-          fileContext: fileCtx || undefined
-        })
-      });
-      const data = await res.json();
-      // Clear file context after it's been sent once
-      setFileCtx(null);
-
-      if (res.ok) {
-        if (data.conversationId) setConvId(data.conversationId);
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: data.response,
-          actions: data.executedActions || []
-        }]);
-      } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.error || res.status}` }]);
-      }
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Could not reach the backend API.' }]);
-    } finally {
-      setLoading(false);
+    // First message of a new conv — show SSH modal (only if repo is loaded, or always)
+    if (!convId) {
+      setPendingMsg(text);
+      setShowSshModal(true);
+      return;
     }
+
+    sendMessage(text);
+  }
+
+  function handleSshModalSubmit(skip = false) {
+    const key = skip ? null : sshKeyInput.trim() || null;
+    setShowSshModal(false);
+    setSshKeyInput('');
+    sendMessage(pendingMsg, key);
+    setPendingMsg('');
   }
 
   function handleKeyDown(e) {
@@ -113,6 +198,36 @@ export default function Dashboard() {
 
   return (
     <div className={`dashboard ${sidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
+
+      {/* ── SSH Key Modal ── */}
+      {showSshModal && (
+        <div className="modal-overlay" onClick={() => { setShowSshModal(false); }}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>New Conversation — SSH Key</h3>
+              <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>
+                Paste an SSH private key so the AI can run commands on your VPS.<br />
+                Skip if you only need GitHub repo editing.
+              </p>
+            </div>
+            <textarea
+              className="modal-ssh-input"
+              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+              value={sshKeyInput}
+              onChange={e => setSshKeyInput(e.target.value)}
+              rows={8}
+            />
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => handleSshModalSubmit(true)}>
+                Skip (repo only)
+              </button>
+              <button className="btn-primary" onClick={() => handleSshModalSubmit(false)}>
+                {sshKeyInput.trim() ? 'Start with SSH Key' : 'Start without key'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <aside className="sidebar">
         <div className="sidebar-brand">
@@ -129,6 +244,17 @@ export default function Dashboard() {
             </button>
           ))}
         </nav>
+        <div className="sidebar-footer">
+          {sidebarOpen && (
+            <div style={{ fontSize: 12, color: '#8b949e', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.username}
+            </div>
+          )}
+          <button className="nav-item" onClick={onLogout} title="Sign out" style={{ width: '100%' }}>
+            <span className="nav-icon">🚪</span>
+            {sidebarOpen && <span className="nav-label">Sign out</span>}
+          </button>
+        </div>
         <div className="sidebar-status">
           <span className="status-dot online" />
           {sidebarOpen && <span>{repoCtx ? `📁 ${repoCtx.repo}` : 'API Connected'}</span>}
@@ -138,10 +264,20 @@ export default function Dashboard() {
       <main className="main">
         <div className="topbar">
           <button className="sidebar-toggle" onClick={() => setSidebar(o => !o)}
-            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}>
+            title={sidebarOpen ? 'Collapse' : 'Expand'}>
             {sidebarOpen ? '◀' : '▶'}
           </button>
           <span className="topbar-title">{activeTabInfo?.icon} {activeTabInfo?.label}</span>
+          {activeTab === 'chat' && (
+            <button
+              className="ghost-btn"
+              onClick={newChat}
+              style={{ marginLeft: 'auto', marginRight: 8, fontSize: 12 }}
+              title="New conversation"
+            >
+              + New Chat
+            </button>
+          )}
           {repoCtx && activeTab !== 'repository' && (
             <span className="repo-badge" title={`${repoCtx.owner}/${repoCtx.repo}`}>
               📁 {repoCtx.repo}
@@ -157,7 +293,7 @@ export default function Dashboard() {
                 <button onClick={() => setFileCtx(null)}>✕</button>
               </div>
             )}
-            <ChatWorkspace messages={messages} loading={loading} />
+            <ChatWorkspace messages={messages} loading={loading} streamingContent={streaming} />
             <div className="chat-footer">
               <textarea className="chat-input"
                 placeholder={fileCtx
