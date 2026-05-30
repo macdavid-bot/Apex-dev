@@ -307,6 +307,11 @@ apex-dev/
 ├── tsconfig.json
 ├── .env.example
 └── README.md
+
+# New files since last tree update
+
+apps/web/public/favicon.png              # App icon (custom brand mark)
+services/shell/session-store.js          # Shell sessions: persistent cwd tracking, cd support, history
 ```
 
 ---

@@ -60,13 +60,22 @@ You can include multiple action blocks in one response. They execute in order. R
 {"type": "git_diff", "base": "main", "head": "feature/my-branch"}
 \`\`\`
 
+**search_repo** — Search for symbols, functions, patterns, or text across the loaded repository. ALWAYS call this first when you need to find something — never guess file paths or read files blindly.
+\`\`\`apex-action
+{"type": "search_repo", "query": "handleLogin", "path": "src", "language": "javascript"}
+\`\`\`
+- query: text or symbol to search for (required)
+- path: subdirectory to limit the search (optional)
+- language: limit to a language (optional, e.g. "javascript", "python")
+
 ## Workflow Rules
-1. **Branch first**: Always create a feature branch before editing any file. Never edit main directly.
-2. **Read before editing**: Always read a file before editing it — use read_file to get the exact current content.
-3. **Surgical edits**: Use edit_file with old_str/new_str. Make the old_str as specific as possible (include 2–3 lines of context around the change). Never rewrite a whole file unless it is brand new.
-4. **Test before committing**: After editing, run tests or build commands to verify the change works.
-5. **Explain actions**: Briefly explain what you're about to do before each action block.
-6. **VPS tasks**: When the user asks to run something on VPS, use run_vps. List the session ID if known.
+1. **Search before reading**: When asked to find, modify, or understand anything in a repository, ALWAYS start with \`search_repo\` to locate relevant files and line numbers. Never guess file paths — search for the symbol or pattern first, then read only the files that match.
+2. **Branch first**: Always create a feature branch before editing any file. Never edit main directly.
+3. **Read before editing**: Always read a file before editing it — use read_file to get the exact current content.
+4. **Surgical edits**: Use edit_file with old_str/new_str. Make the old_str as specific as possible (include 2–3 lines of context around the change). Never rewrite a whole file unless it is brand new.
+5. **Test before committing**: After editing, run tests or build commands to verify the change works.
+6. **Explain actions**: Briefly explain what you're about to do before each action block.
+7. **VPS tasks**: When the user asks to run something on VPS, use run_vps. List the session ID if known.
 
 ## Code Style
 - Use fenced code blocks with language tags for all code snippets.
@@ -268,6 +277,72 @@ async function executeAction(action, conv) {
       } else {
         const { generateDiff } = await import('../../../../services/git/diff.js');
         return generateDiff(base, head, cwd);
+      }
+    }
+
+    case 'search_repo': {
+      const { query, path: searchPath, language } = action;
+      if (!query) return { error: 'query is required' };
+
+      if (repoCtx?.owner) {
+        // GitHub Code Search API
+        const repoFilter = `repo:${repoCtx.owner}/${repoCtx.repo}`;
+        const langFilter = language ? `+language:${language}` : '';
+        const pathFilter = searchPath ? `+path:${searchPath}` : '';
+        const q = encodeURIComponent(`${query} ${repoFilter}${langFilter}${pathFilter}`.trim());
+
+        const res = await fetch(
+          `https://api.github.com/search/code?q=${q}&per_page=15`,
+          { headers: ghHeaders() }
+        );
+        if (!res.ok) {
+          // GitHub search may be rate-limited — tell AI to fall back
+          return {
+            error: `GitHub code search failed (${res.status}) — try list_files to browse directories, then read_file on likely candidates`,
+            query
+          };
+        }
+        const data = await res.json();
+        return {
+          query,
+          totalCount: data.total_count,
+          results: data.items.slice(0, 15).map(item => ({
+            path: item.path,
+            name: item.name,
+            score: item.score
+          }))
+        };
+      } else {
+        // Local grep search across common source file extensions
+        const dir = searchPath || '.';
+        const escaped = query.replace(/"/g, '\\"').replace(/`/g, '\\`');
+        const includes = [
+          '--include="*.js"', '--include="*.jsx"', '--include="*.ts"', '--include="*.tsx"',
+          '--include="*.py"', '--include="*.go"', '--include="*.rs"', '--include="*.java"',
+          '--include="*.rb"', '--include="*.php"', '--include="*.c"', '--include="*.cpp"',
+          '--include="*.sh"', '--include="*.json"', '--include="*.yaml"', '--include="*.yml"'
+        ].join(' ');
+
+        // First: get list of matching files
+        const filesResult = await runShellCommand(
+          `grep -r ${includes} -l "${escaped}" "${dir}" 2>/dev/null | head -20`,
+          process.cwd()
+        );
+        const files = filesResult.stdout.trim().split('\n').filter(Boolean);
+
+        // Then: get matching lines (with line numbers) for top 8 files
+        const matches = await Promise.all(files.slice(0, 8).map(async file => {
+          const lineResult = await runShellCommand(
+            `grep -n "${escaped}" "${file}" 2>/dev/null | head -6`,
+            process.cwd()
+          );
+          return {
+            path: file,
+            lines: lineResult.stdout.trim().split('\n').filter(Boolean)
+          };
+        }));
+
+        return { query, totalCount: files.length, results: matches };
       }
     }
 
