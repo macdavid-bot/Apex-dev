@@ -3,25 +3,41 @@ import { createApproval, getApprovals, approveAction, rejectAction } from '../..
 
 const router = express.Router();
 
-router.get('/', (req, res) => {
-  res.json(getApprovals());
+router.get('/', async (req, res) => {
+  try {
+    res.json(await getApprovals());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/', (req, res) => {
-  const approval = createApproval(req.body);
-  res.json(approval);
+router.post('/', async (req, res) => {
+  try {
+    const approval = await createApproval(req.body);
+    res.json(approval);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/:id/approve', (req, res) => {
-  const result = approveAction(req.params.id);
-  if (!result) return res.status(404).json({ error: 'Approval not found' });
-  res.json(result);
+router.post('/:id/approve', async (req, res) => {
+  try {
+    const result = await approveAction(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Approval not found' });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/:id/reject', (req, res) => {
-  const result = rejectAction(req.params.id);
-  if (!result) return res.status(404).json({ error: 'Approval not found' });
-  res.json(result);
+router.post('/:id/reject', async (req, res) => {
+  try {
+    const result = await rejectAction(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Approval not found' });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

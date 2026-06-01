@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS job_queue (
 );
 CREATE INDEX IF NOT EXISTS job_queue_status_idx ON job_queue(status, priority DESC, created_at);
 
--- Workflow timeline entries
+-- Workflow timeline entries (persisted)
 CREATE TABLE IF NOT EXISTS workflows (
   id          TEXT PRIMARY KEY,
   title       TEXT NOT NULL,
@@ -51,8 +51,9 @@ CREATE TABLE IF NOT EXISTS workflows (
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS workflows_created_idx ON workflows(created_at DESC);
 
--- Human approval requests
+-- Human approval requests (persisted)
 CREATE TABLE IF NOT EXISTS approvals (
   id          TEXT PRIMARY KEY,
   title       TEXT NOT NULL,
@@ -62,8 +63,9 @@ CREATE TABLE IF NOT EXISTS approvals (
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS approvals_status_idx ON approvals(status, created_at DESC);
 
--- SSH / VPS servers (DB-backed, persists across restarts)
+-- SSH / VPS servers
 CREATE TABLE IF NOT EXISTS ssh_sessions (
   id               TEXT PRIMARY KEY,
   label            TEXT NOT NULL,
@@ -99,9 +101,20 @@ CREATE TABLE IF NOT EXISTS code_chunks (
 CREATE INDEX IF NOT EXISTS code_chunks_repo_idx ON code_chunks(repo_key);
 CREATE INDEX IF NOT EXISTS code_chunks_tsv_idx  ON code_chunks USING GIN(content_tsv);
 CREATE UNIQUE INDEX IF NOT EXISTS code_chunks_unique ON code_chunks(repo_key, file_path, chunk_index);
+
+-- Activity / audit log
+CREATE TABLE IF NOT EXISTS activity_log (
+  id         TEXT PRIMARY KEY,
+  category   TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  meta_json  JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS activity_log_created_idx  ON activity_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS activity_log_category_idx ON activity_log(category, action);
 `;
 
-// Safe column additions for existing deployments
+// Safe column additions for existing deployments (idempotent)
 const ALTER_DDL = `
 DO $$ BEGIN
   BEGIN ALTER TABLE ssh_sessions ADD COLUMN env_file        TEXT DEFAULT '.env'; EXCEPTION WHEN duplicate_column THEN NULL; END;

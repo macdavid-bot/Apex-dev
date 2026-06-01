@@ -1,0 +1,40 @@
+# systemd service for Apex Dev API
+# Copy to: /etc/systemd/system/apex-dev.service
+# Then: systemctl daemon-reload && systemctl enable apex-dev && systemctl start apex-dev
+
+[Unit]
+Description=Apex Dev API Server
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=apex
+Group=apex
+
+WorkingDirectory=/var/www/apex-dev
+
+# Load environment from file
+EnvironmentFile=/var/www/apex-dev/.env.production
+
+# Start the API directly via Node
+ExecStart=/usr/bin/node --experimental-vm-modules apps/api/src/index.js
+
+# Or use PM2 (preferred for production):
+# ExecStart=/usr/local/bin/pm2-runtime ecosystem.config.cjs --env production
+
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=apex-dev
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/apex-dev
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

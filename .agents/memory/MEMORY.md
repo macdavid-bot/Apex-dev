@@ -1,7 +1,10 @@
 - [Auth & Storage Architecture](auth-storage.md) — single-user JWT auth + VPS PostgreSQL; both gracefully fall back (no DB → in-memory, no JWT_SECRET → insecure default with warning)
 - [Streaming & Background Jobs](streaming-jobs.md) — POST /orchestrator/chat enqueues to DB job_queue; worker polls every 2s; SSE via GET /jobs/:id/stream with EventEmitter; requireAuth accepts query ?token= for EventSource compatibility
-- [Real-time Terminal](terminal-ws.md) — WebSocket at /ws/terminal; child_process.spawn (not node-pty) for reliability; xterm.js on frontend; auth via ?token= query param
+- [Real-time Terminal](terminal-ws.md) — WebSocket at /ws/terminal (local shell) and /ws/vps/:id (SSH); child_process.spawn for local, ssh2 Client for VPS; xterm.js on frontend; auth via ?token= query param; TerminalPanel uses relative buildWsUrl() — no hardcoded port
 - [Package Scope](pkg-scope.md) — shared services/ (services/db, services/auth, services/queue, services/memory, services/embeddings) must be installed at workspace root with pnpm add -w, not inside apps/api
 - [Step event flow](step-events.md) — worker emitStep → jobEvents 'step' → jobs.js SSE → Dashboard liveSteps; steps keyed by index so running→done updates in-place; cleared on SSE 'done'
 - [VPS server storage](vps-storage.md) — ssh_sessions table; new columns (env_file, service_name, deploy_dir, deploy_commands) added via DO $$ BEGIN ALTER TABLE ADD COLUMN … EXCEPTION WHEN duplicate_column THEN NULL; END $$
 - [Orchestrator VPS injection](orchestrator-vps.md) — buildSystemPrompt queries listVpsServers() and appends server IDs to system prompt so AI knows valid session IDs for run_vps/deploy_to_vps/set_vps_env
+- [Auth Security](auth-bcrypt.md) — auth.js uses bcryptjs for password comparison (timing-safe); plain-text AUTH_PASSWORD env var is hashed in-memory on first login, never stored; activity logged on login/logout/failure
+- [DB Persistence](db-persistence.md) — workflows and approvals are now DB-backed (services/workflow/store.js, services/approval/runtime.js); activity_log table added to migrations; all store functions are async
+- [Production Deploy](prod-deploy.md) — deploy/ directory has nginx.conf, systemd service, PM2 ecosystem, deploy.sh script, and .env.production.example; single-origin setup — nginx proxies /ws/ as WS and all API routes direct to port 3000

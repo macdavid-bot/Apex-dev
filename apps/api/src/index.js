@@ -12,6 +12,8 @@ import { runMigrations } from '../../../services/db/migrations.js';
 import { dbAvailable }   from '../../../services/db/client.js';
 import { startWorker }   from '../../../services/queue/worker.js';
 import { attachTerminalWS } from './ws/terminal.js';
+import { attachVpsWS }      from './ws/vps.js';
+import { logActivity }   from '../../../services/monitoring/activity.js';
 
 import authRoutes           from './routes/auth.js';
 import shellRoutes          from './routes/shell.js';
@@ -69,7 +71,12 @@ app.use((req, res, next) => {
 });
 
 // ── Request logging ────────────────────────────────────────────────────────────
-if (isProd) app.use((req, _res, next) => { console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`); next(); });
+if (isProd) {
+  app.use((req, _res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    next();
+  });
+}
 
 // ── Health (public) ────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
@@ -93,7 +100,7 @@ app.use('/validation',        requireAuth, validationRoutes);
 app.use('/workspace',         requireAuth, workspaceRoutes);
 app.use('/repository',        requireAuth, repositoryRoutes);
 app.use('/context',           requireAuth, contextRoutes);
-app.use('/orchestrator',      orchestratorRoutes);   // auth applied per-route inside
+app.use('/orchestrator',      orchestratorRoutes);       // auth applied per-route inside
 app.use('/workflow',          requireAuth, workflowRoutes);
 app.use('/git',               requireAuth, gitRoutes);
 app.use('/validation-engine', requireAuth, validationEngineRoutes);
@@ -105,16 +112,22 @@ app.use('/system',            requireAuth, systemRoutes);
 app.use('/github',            requireAuth, githubRoutes);
 app.use('/vps',               requireAuth, vpsRoutes);
 app.use('/files',             requireAuth, filesRoutes);
-app.use('/jobs',              jobsRoutes);           // auth applied per-route inside
+app.use('/jobs',              jobsRoutes);                // auth applied per-route inside
 
-// ── WebSocket — real-time terminal ────────────────────────────────────────────
+// ── WebSocket servers ─────────────────────────────────────────────────────────
 const termWss = new WebSocketServer({ noServer: true });
+const vpsWss  = new WebSocketServer({ noServer: true });
+
 attachTerminalWS(termWss);
+attachVpsWS(vpsWss);
 
 server.on('upgrade', (req, socket, head) => {
   const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+
   if (pathname === '/ws/terminal') {
     termWss.handleUpgrade(req, socket, head, ws => termWss.emit('connection', ws, req));
+  } else if (pathname.startsWith('/ws/vps/')) {
+    vpsWss.handleUpgrade(req, socket, head, ws => vpsWss.emit('connection', ws, req));
   } else {
     socket.destroy();
   }
@@ -140,6 +153,7 @@ server.listen(PORT, HOST, async () => {
   if (!process.env.DEEPSEEK_API_KEY) console.warn('[WARN] DEEPSEEK_API_KEY not set');
   if (!process.env.GITHUB_TOKEN)     console.warn('[WARN] GITHUB_TOKEN not set');
   if (!process.env.DATABASE_URL)     console.warn('[WARN] DATABASE_URL not set — using in-memory fallbacks');
+  if (!process.env.JWT_SECRET)       console.warn('[WARN] JWT_SECRET not set — using insecure default');
 
   // DB migrations (non-blocking — app runs without DB)
   if (await dbAvailable()) {
@@ -148,4 +162,11 @@ server.listen(PORT, HOST, async () => {
 
   // Start background job worker
   startWorker(2000);
+
+  // Log startup
+  await logActivity('system', 'startup', {
+    port: PORT,
+    env: process.env.NODE_ENV || 'development',
+    db: !!(await dbAvailable())
+  });
 });

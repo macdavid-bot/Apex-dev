@@ -6,41 +6,53 @@ import { addWorkflow, updateWorkflow, getWorkflows } from '../../../../services/
 
 const router = express.Router();
 
-// List all tracked workflows (used by WorkflowTimeline)
-router.get('/', (req, res) => {
-  res.json(getWorkflows());
+// GET /workflow — list all tracked workflows (DB-backed)
+router.get('/', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 50;
+    res.json(await getWorkflows(limit));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Create a new tracked workflow entry
-router.post('/', (req, res) => {
-  const wf = addWorkflow(req.body);
-  res.json(wf);
+// POST /workflow — create a workflow entry
+router.post('/', async (req, res) => {
+  try {
+    const wf = await addWorkflow(req.body);
+    res.json(wf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Update workflow status
-router.patch('/:id', (req, res) => {
-  const wf = updateWorkflow(req.params.id, req.body);
-  if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-  res.json(wf);
+// PATCH /workflow/:id — update status
+router.patch('/:id', async (req, res) => {
+  try {
+    const wf = await updateWorkflow(req.params.id, req.body);
+    if (!wf) return res.status(404).json({ error: 'Workflow not found' });
+    res.json(wf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Lifecycle / orchestration helpers
-router.post('/lifecycle', (req, res) => {
+router.post('/lifecycle', async (req, res) => {
   const lifecycle = createLifecycle(req.body.task);
-  // Also register as a tracked workflow
-  addWorkflow({ title: req.body.task || 'Lifecycle', status: 'running', type: 'lifecycle' });
+  await addWorkflow({ title: req.body.task || 'Lifecycle', status: 'running', type: 'lifecycle' });
   res.json(lifecycle);
 });
 
 router.post('/orchestrate', async (req, res) => {
   const workflow = await orchestrateWorkflow(req.body.task);
-  addWorkflow({ title: req.body.task || 'Orchestration', status: 'running', type: 'orchestration' });
+  await addWorkflow({ title: req.body.task || 'Orchestration', status: 'running', type: 'orchestration' });
   res.json(workflow);
 });
 
-router.post('/pipeline', (req, res) => {
+router.post('/pipeline', async (req, res) => {
   const pipeline = createPipeline(req.body.task);
-  addWorkflow({ title: req.body.task || 'Pipeline', status: 'running', type: 'pipeline' });
+  await addWorkflow({ title: req.body.task || 'Pipeline', status: 'running', type: 'pipeline' });
   res.json(pipeline);
 });
 
