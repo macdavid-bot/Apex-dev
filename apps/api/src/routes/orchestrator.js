@@ -13,12 +13,30 @@ import { query, queryOne, dbAvailable } from '../../../../services/db/client.js'
 
 const router = express.Router();
 
-// in-memory conversation cache (also written to DB when available)
 const conversations = new Map();
+
+// ── VPS helpers (DB-backed with in-memory fallback) ───────────────────────────
+
+async function getVpsServer(id) {
+  if (await dbAvailable()) {
+    return queryOne('SELECT * FROM ssh_sessions WHERE id=$1', [id]).catch(() => null);
+  }
+  return vpsSessions.get(id) || null;
+}
+
+async function listVpsServers() {
+  if (await dbAvailable()) {
+    const res = await query(
+      'SELECT id, label, host, port, username, deploy_dir, deploy_commands, service_name FROM ssh_sessions ORDER BY created_at'
+    ).catch(() => ({ rows: [] }));
+    return res.rows;
+  }
+  return [...vpsSessions.values()].map(({ id, label, host, port, username }) => ({ id, label, host, port, username }));
+}
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-const BASE_SYSTEM = `You are Apex Dev, an autonomous engineering AI. You act directly — you never ask the user to do things you can do yourself.
+const BASE_SYSTEM = `You are Apex Dev, an autonomous engineering AI. You act directly — you never ask the user to do things you can do yourself. Show your work step-by-step as you go.
 
 ## Available Actions
 Embed action blocks in your response using this exact format (each block is valid JSON):
@@ -70,11 +88,10 @@ Multiple action blocks per response are fine — they execute in order.
 \`\`\`apex-action
 {"type": "run_tests", "branch": "feature/my-branch", "test_command": "npm test"}
 \`\`\`
-- test_command is optional — auto-detected from package.json / pytest.ini / go.mod if omitted.
 
 **create_pull_request** — Create a GitHub PR. Only allowed after run_tests passes.
 \`\`\`apex-action
-{"type": "create_pull_request", "branch": "feature/my-branch", "title": "feat: add login", "body": "Description of changes", "base": "main"}
+{"type": "create_pull_request", "branch": "feature/my-branch", "title": "feat: add login", "body": "Description", "base": "main"}
 \`\`\`
 
 **run_local** — Run a shell command on the local machine.
@@ -82,10 +99,23 @@ Multiple action blocks per response are fine — they execute in order.
 {"type": "run_local", "command": "npm install", "cwd": "/tmp/clone"}
 \`\`\`
 
-**run_vps** — Run a command on a connected VPS session.
+**run_vps** — Run a command on a configured VPS server. Use server IDs from the system context.
 \`\`\`apex-action
-{"type": "run_vps", "session_id": "SESSION_ID", "command": "pm2 restart app"}
+{"type": "run_vps", "session_id": "SERVER_ID", "command": "pm2 list"}
 \`\`\`
+
+**deploy_to_vps** — Pull latest code, install deps, and restart service on a VPS.
+\`\`\`apex-action
+{"type": "deploy_to_vps", "server_id": "SERVER_ID", "dir": "/var/www/app", "commands": ["git pull", "npm install --production", "pm2 restart app"]}
+\`\`\`
+- If commands is omitted, the server's configured deploy_commands are used.
+- If dir is omitted, the server's configured deploy_dir is used.
+
+**set_vps_env** — Securely write an environment variable to the VPS .env file.
+\`\`\`apex-action
+{"type": "set_vps_env", "server_id": "SERVER_ID", "key": "OPENAI_API_KEY", "value": "sk-...", "env_file": ".env", "service": "myapp"}
+\`\`\`
+- service: optional PM2 process name to restart after writing.
 
 **recall_memory** — Recall stored facts and notes about this project.
 \`\`\`apex-action
@@ -98,19 +128,15 @@ Multiple action blocks per response are fine — they execute in order.
 \`\`\`
 
 ## Workflow Rules
-1. **Search before reading**: Always start with search_repo or search_code_fts to find relevant files. Never guess paths.
+1. **Search before reading**: Always start with search_repo or search_code_fts to find relevant files.
 2. **Branch first**: Create a feature branch before any edits. Never commit directly to main.
 3. **Read before editing**: Read the current file content before calling edit_file.
 4. **Surgical edits**: Use old_str/new_str with 2-3 lines of context. Never rewrite whole files.
-5. **Test before PR**: ALWAYS call run_tests after editing code. If tests fail, fix the code and run tests again. Repeat up to 3 times. Only call create_pull_request after tests pass.
-6. **Remember**: Use add_memory for important discoveries (architecture decisions, quirks, patterns).
-7. **Explain**: Briefly describe each action before executing it.
+5. **Test before PR**: ALWAYS call run_tests after editing code. Fix failures and retry up to 3 times. Only call create_pull_request after tests pass.
+6. **Remember**: Use add_memory for important discoveries (architecture, quirks, patterns).
+7. **Narrate**: Briefly describe what you're doing before each action so the user can follow along.
 8. **On error**: Read the error, reason about the fix, retry with corrected action.
-
-## Code Style
-- Concise explanations. Skip boilerplate.
-- Use fenced code blocks with language tags.
-- Prefer existing patterns in the codebase.`;
+9. **VPS actions**: Use server IDs listed in the context above. For deploy, prefer deploy_to_vps over individual run_vps commands.`;
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -143,6 +169,76 @@ async function dbLoadMessages(convId) {
     content: r.content,
     actions: r.actions_json
   }));
+}
+
+// ── Step label helpers ─────────────────────────────────────────────────────────
+
+function stepLabel(action) {
+  const path = action.path || '';
+  const cmd  = (action.command || action.commands?.[0] || '').slice(0, 60);
+  const q    = (action.query || '').slice(0, 50);
+  switch (action.type) {
+    case 'read_file':           return `Opening \`${path}\``;
+    case 'edit_file':           return `Editing \`${path}\``;
+    case 'list_files':          return `Listing \`${action.path || '/'}\``;
+    case 'search_repo':         return `Searching for \`${q}\``;
+    case 'search_code_fts':     return `Searching codebase: \`${q}\``;
+    case 'create_branch':       return `Creating branch \`${action.branch}\``;
+    case 'git_diff':            return `Comparing \`${action.base || 'main'}\`→\`${action.head || 'HEAD'}\``;
+    case 'run_tests':           return `Running tests${action.branch ? ` on \`${action.branch}\`` : ''}`;
+    case 'run_local':           return `Running: \`${cmd}\``;
+    case 'run_vps':             return `VPS: \`${cmd}\``;
+    case 'create_pull_request': return `Opening PR: "${(action.title || '').slice(0, 50)}"`;
+    case 'recall_memory':       return `Recalling project memory`;
+    case 'add_memory':          return `Saving to memory`;
+    case 'deploy_to_vps':       return `Deploying to VPS`;
+    case 'set_vps_env':         return `Writing \`${action.key}\` to VPS`;
+    default:                    return action.type;
+  }
+}
+
+function stepDoneLabel(action, result) {
+  switch (action.type) {
+    case 'read_file':
+      return result.error
+        ? `Could not open \`${action.path}\``
+        : `Opened \`${action.path}\` (${result.lines || '?'} lines)`;
+    case 'edit_file':
+      return result.error
+        ? `Edit failed: ${result.error}`
+        : `Edited \`${action.path}\`${result.commitSha ? ` — committed` : ''}`;
+    case 'list_files':
+      return result.error ? `List failed` : `\`${action.path || '/'}\` — ${result.entries?.length || 0} items`;
+    case 'search_repo':
+      return result.error ? `Search failed` : `${result.totalCount || 0} results for \`${(action.query || '').slice(0, 30)}\``;
+    case 'search_code_fts':
+      return result.error ? `FTS failed` : `${result.results?.length || 0} matches`;
+    case 'create_branch':
+      return result.error ? `Branch failed` : `Branch \`${action.branch}\` ready`;
+    case 'git_diff':
+      return result.error ? `Diff failed` : `Got diff`;
+    case 'run_tests':
+      return result.passed
+        ? `Tests passed ✓`
+        : `Tests failed ✗${result.stderr ? ' — ' + result.stderr.slice(0, 80) : ''}`;
+    case 'run_local':
+      return result.error
+        ? `Error: ${result.error}`
+        : `Exit ${result.exitCode ?? 0}${result.stdout ? ': ' + result.stdout.replace(/\n/g, ' ').slice(0, 60) : ''}`;
+    case 'run_vps':
+      return result.error
+        ? `VPS error: ${result.error}`
+        : `Done${result.stdout ? ': ' + result.stdout.replace(/\n/g, ' ').slice(0, 60) : ''}`;
+    case 'create_pull_request':
+      return result.error ? `PR failed: ${result.error}` : `PR #${result.prNumber} opened`;
+    case 'recall_memory':   return `Memory recalled`;
+    case 'add_memory':      return `Saved to memory`;
+    case 'deploy_to_vps':
+      return result.error ? `Deploy failed: ${result.error}` : `Deployed successfully ✓`;
+    case 'set_vps_env':
+      return result.error ? `Failed: ${result.error}` : `\`${action.key}\` written to VPS`;
+    default:                return action.type;
+  }
 }
 
 // ── Action executor ───────────────────────────────────────────────────────────
@@ -252,7 +348,7 @@ async function executeAction(action, conv) {
         }
         const result = await putRes.json();
         conv.lastEditBranch = b;
-        conv.testsPassed = false; // edits invalidate previous test results
+        conv.testsPassed = false;
         return { success: true, path, branch: b, commitSha: result.commit?.sha, commitUrl: result.commit?.html_url };
       }
       conv.testsPassed = false;
@@ -295,7 +391,6 @@ async function executeAction(action, conv) {
     case 'run_tests': {
       const { branch, test_command } = action;
       if (!repoCtx?.owner) {
-        // Local: just run the command
         if (!test_command) return { error: 'test_command required for local repos' };
         const r = await runShellCommand(test_command, process.cwd());
         const passed = r.exitCode === 0 && !r.stderr?.includes('FAIL');
@@ -309,20 +404,15 @@ async function executeAction(action, conv) {
       const b = branch || conv.lastEditBranch || repoCtx.branch || 'main';
       const cloneDir = `/tmp/apex-clones/${repoCtx.owner}-${repoCtx.repo}`;
 
-      // Clone or update
       const { existsSync } = await import('fs');
       if (existsSync(`${cloneDir}/.git`)) {
         await runShellCommand(`git fetch origin && git checkout ${b} && git reset --hard origin/${b}`, cloneDir);
       } else {
         const cloneUrl = `https://${token}@github.com/${repoCtx.owner}/${repoCtx.repo}.git`;
-        const cloneRes = await runShellCommand(
-          `git clone --depth 10 --branch ${b} ${cloneUrl} ${cloneDir}`,
-          '/tmp'
-        );
+        const cloneRes = await runShellCommand(`git clone --depth 10 --branch ${b} ${cloneUrl} ${cloneDir}`, '/tmp');
         if (!cloneRes.success) return { error: `Clone failed: ${cloneRes.stderr}` };
       }
 
-      // Detect test command
       let cmd = test_command;
       if (!cmd) {
         const pkgRes = await runShellCommand('cat package.json 2>/dev/null', cloneDir);
@@ -335,54 +425,29 @@ async function executeAction(action, conv) {
             }
           } catch {}
         }
-        if (!cmd) {
-          const pytest = await runShellCommand('which pytest', cloneDir);
-          if (pytest.success) cmd = 'pytest';
-        }
-        if (!cmd) {
-          const gomod = await runShellCommand('test -f go.mod && echo yes', cloneDir);
-          if (gomod.stdout.trim() === 'yes') cmd = 'go test ./...';
-        }
+        if (!cmd) { const p = await runShellCommand('which pytest', cloneDir); if (p.success) cmd = 'pytest'; }
+        if (!cmd) { const g = await runShellCommand('test -f go.mod && echo yes', cloneDir); if (g.stdout.trim() === 'yes') cmd = 'go test ./...'; }
         if (!cmd) return { error: 'Could not detect test command. Specify test_command explicitly.', cloneDir };
-
-        // Install deps first
         const hasPnpm2 = (await runShellCommand('which pnpm', cloneDir)).success;
-        const installCmd = hasPnpm2 ? 'pnpm install --frozen-lockfile 2>&1 || pnpm install' : 'npm install';
-        await runShellCommand(installCmd, cloneDir);
+        await runShellCommand(hasPnpm2 ? 'pnpm install --frozen-lockfile 2>&1 || pnpm install' : 'npm install', cloneDir);
       }
 
       const result = await runShellCommand(cmd, cloneDir);
       const passed = result.exitCode === 0;
       conv.testsPassed = passed;
-
-      return {
-        branch: b,
-        command: cmd,
-        passed,
-        exitCode: result.exitCode,
-        stdout: trim4k(result.stdout),
-        stderr: trim4k(result.stderr)
-      };
+      return { branch: b, command: cmd, passed, exitCode: result.exitCode, stdout: trim4k(result.stdout), stderr: trim4k(result.stderr) };
     }
 
     // ── create_pull_request ──────────────────────────────────────────────────
     case 'create_pull_request': {
       const { branch, title, body = '', base = 'main' } = action;
       if (!branch || !title) return { error: 'branch and title are required' };
-
       if (!repoCtx?.owner) return { error: 'create_pull_request requires a loaded GitHub repository' };
-
-      // Enforce test requirement
       if (!conv.testsPassed) {
-        return {
-          error: 'Tests have not passed. You must call run_tests first and they must pass before creating a pull request.',
-          hint: 'Call run_tests with the feature branch, ensure all tests pass, then call create_pull_request.'
-        };
+        return { error: 'Tests have not passed. You must call run_tests first and they must pass before creating a pull request.' };
       }
-
       const token = process.env.GITHUB_TOKEN;
       if (!token) return { error: 'GITHUB_TOKEN not configured' };
-
       const res = await fetch(
         `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/pulls`,
         {
@@ -396,7 +461,8 @@ async function executeAction(action, conv) {
         return { error: err.message || `PR creation failed: ${res.status}` };
       }
       const pr = await res.json();
-      conv.testsPassed = false; // reset after PR
+      conv.testsPassed = false;
+      conv.lastPR = { number: pr.number, url: pr.html_url, branch };
       return { success: true, prNumber: pr.number, url: pr.html_url, title: pr.title, branch, base };
     }
 
@@ -448,15 +514,93 @@ async function executeAction(action, conv) {
     case 'run_vps': {
       const { session_id, command } = action;
       if (!session_id || !command) return { error: 'session_id and command are required' };
-      const session = vpsSessions.get(session_id);
-      if (!session) return { error: `VPS session "${session_id}" not found` };
+      const server = await getVpsServer(session_id);
+      if (!server) return { error: `VPS server "${session_id}" not found. Check available servers in the system prompt.` };
       const { NodeSSH } = await import('node-ssh');
       const ssh = new NodeSSH();
       try {
-        await ssh.connect({ host: session.host, port: session.port || 22, username: session.username, privateKey: session.privateKey, readyTimeout: 10000 });
+        await ssh.connect({
+          host: server.host, port: server.port || 22,
+          username: server.username, privateKey: server.private_key,
+          readyTimeout: 10000
+        });
         const r = await ssh.execCommand(command);
         ssh.dispose();
         return { stdout: trim4k(r.stdout), stderr: trim4k(r.stderr), code: r.code };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
+      }
+    }
+
+    // ── deploy_to_vps ────────────────────────────────────────────────────────
+    case 'deploy_to_vps': {
+      const { server_id, dir, commands } = action;
+      if (!server_id) return { error: 'server_id is required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+
+      const deployDir = dir || server.deploy_dir || '';
+      const defaultCmds = server.deploy_commands
+        ? server.deploy_commands.split('\n').filter(Boolean)
+        : ['git pull', 'npm install --production', 'pm2 restart all'];
+      const deployCommands = commands || defaultCmds;
+
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({
+          host: server.host, port: server.port || 22,
+          username: server.username, privateKey: server.private_key,
+          readyTimeout: 15000
+        });
+        const results = [];
+        for (const cmd of deployCommands) {
+          const r = await ssh.execCommand(cmd, { cwd: deployDir || undefined });
+          results.push({ command: cmd, stdout: r.stdout?.slice(0, 500), stderr: r.stderr?.slice(0, 200), code: r.code });
+          if (r.code !== 0 && r.stderr) {
+            ssh.dispose();
+            return { error: `Command failed: ${cmd}`, output: r.stderr.slice(0, 300), results };
+          }
+        }
+        ssh.dispose();
+        return { success: true, server: server.label, commandsRun: deployCommands.length, results };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
+      }
+    }
+
+    // ── set_vps_env ──────────────────────────────────────────────────────────
+    case 'set_vps_env': {
+      const { server_id, key, value, env_file = '.env', service } = action;
+      if (!server_id || !key || value === undefined) return { error: 'server_id, key, and value are required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({
+          host: server.host, port: server.port || 22,
+          username: server.username, privateKey: server.private_key,
+          readyTimeout: 10000
+        });
+        const absPath = env_file.startsWith('/') ? env_file : `$HOME/${env_file}`;
+        const escapedVal = value.replace(/\\/g, '\\\\').replace(/'/g, "'\\''");
+        const writeCmd =
+          `touch ${absPath} && ` +
+          `if grep -q "^${key}=" ${absPath} 2>/dev/null; then ` +
+          `  sed -i "s|^${key}=.*|${key}=${escapedVal}|" ${absPath}; ` +
+          `else echo "${key}=${escapedVal}" >> ${absPath}; fi`;
+        const r = await ssh.execCommand(writeCmd);
+        const svcName = service || server.service_name || '';
+        if (svcName && !r.stderr) {
+          await ssh.execCommand(`pm2 restart ${svcName} 2>/dev/null || systemctl restart ${svcName} 2>/dev/null || true`);
+        }
+        ssh.dispose();
+        if (r.code !== 0 && r.stderr) return { error: r.stderr.slice(0, 200) };
+        return { success: true, key, env_file: absPath, restarted: !!svcName };
       } catch (err) {
         if (ssh.isConnected()) ssh.dispose();
         return { error: err.message };
@@ -467,8 +611,7 @@ async function executeAction(action, conv) {
     case 'recall_memory': {
       if (!repoCtx?.owner) return { error: 'No repo loaded — memory is per-project' };
       const { getMemory } = await import('../../../../services/memory/project-memory.js');
-      const mem = await getMemory(repoCtx.owner, repoCtx.repo);
-      return mem;
+      return getMemory(repoCtx.owner, repoCtx.repo);
     }
 
     // ── add_memory ───────────────────────────────────────────────────────────
@@ -525,34 +668,54 @@ async function buildSystemPrompt(repoCtx) {
       system += `\nFile tree (${repoCtx.fileCount} files):\n${repoCtx.files.map(f => f.path).join('\n')}\n`;
     }
     if (repoCtx.readme) system += `\nREADME (excerpt):\n${repoCtx.readme}\n`;
-
     const memPrompt = await formatMemoryForPrompt(repoCtx.owner, repoCtx.repo);
     if (memPrompt) system += `\n\n---\n${memPrompt}\n---`;
   }
+
+  // Inject available VPS servers so AI knows what IDs to use
+  try {
+    const servers = await listVpsServers();
+    if (servers.length > 0) {
+      system += `\n\n---\n**Available VPS Servers** (use these IDs with run_vps, deploy_to_vps, set_vps_env):\n`;
+      servers.forEach(s => {
+        system += `- ID: \`${s.id}\`  |  ${s.label}  |  ${s.username}@${s.host}:${s.port || 22}`;
+        if (s.deploy_dir) system += `  |  deploy_dir: ${s.deploy_dir}`;
+        if (s.service_name) system += `  |  service: ${s.service_name}`;
+        system += '\n';
+      });
+      system += '---';
+    }
+  } catch {}
+
   return system;
 }
 
 // ── Core agent loop (streaming) ───────────────────────────────────────────────
 
-const MAX_ITERATIONS = 8;
+const MAX_ITERATIONS  = 8;
 const MAX_TEST_RETRIES = 3;
 
 async function runAgentLoop(apiKey, conv, initialUserMessage, emitters = {}) {
-  const { emitToken = () => {}, emitAction = () => {}, emitProgress = () => {} } = emitters;
+  const {
+    emitToken    = () => {},
+    emitAction   = () => {},
+    emitStep     = () => {},
+    emitProgress = () => {}
+  } = emitters;
 
   conv.messages.push({ role: 'user', content: initialUserMessage });
   await dbSaveMessage(conv.id, 'user', initialUserMessage);
 
   const executedActions = [];
   let finalResponse = '';
-  let iterations = 0;
-  let testRetries = 0;
+  let iterations    = 0;
+  let testRetries   = 0;
+  let globalStepIdx = 0;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
-    emitProgress(`Thinking (iteration ${iterations})…`);
+    emitProgress(`Thinking…`);
 
-    // Stream tokens from DeepSeek
     let replyContent = '';
     for await (const chunk of runDeepSeekStream({ apiKey, messages: conv.messages })) {
       if (chunk.done) break;
@@ -571,7 +734,6 @@ async function runAgentLoop(apiKey, conv, initialUserMessage, emitters = {}) {
       break;
     }
 
-    // Execute actions
     const actionResults = [];
     for (const { raw, action, parseError } of parsedActions) {
       if (parseError) {
@@ -580,14 +742,31 @@ async function runAgentLoop(apiKey, conv, initialUserMessage, emitters = {}) {
         continue;
       }
 
-      emitProgress(`Executing ${action.type}…`);
+      // Emit step: starting
+      const startLabel = stepLabel(action);
+      emitStep({ label: startLabel, actionType: action.type, status: 'running', index: globalStepIdx });
       emitAction({ type: action.type, params: action });
 
       const result = await executeAction(action, conv);
+
+      // Emit step: done/error
+      const doneLabel = stepDoneLabel(action, result);
+      emitStep({
+        label:      doneLabel,
+        actionType: action.type,
+        status:     result.error ? 'error' : 'done',
+        index:      globalStepIdx,
+        detail:     result.error
+          ? result.error
+          : (action.type === 'run_tests' && !result.passed)
+            ? (result.stderr || result.stdout || '').slice(0, 200)
+            : undefined
+      });
+      globalStepIdx++;
+
       actionResults.push({ type: action.type, params: action, result });
       executedActions.push({ type: action.type, params: action, result });
 
-      // If run_tests failed and we have retries, allow AI to fix
       if (action.type === 'run_tests' && !result.passed && testRetries < MAX_TEST_RETRIES) {
         testRetries++;
         emitProgress(`Tests failed — retry ${testRetries}/${MAX_TEST_RETRIES}…`);
@@ -628,16 +807,13 @@ async function runAiJob(job, emitters) {
   let conv = conversations.get(id);
 
   if (!conv) {
-    // Try to restore from DB
     const dbMessages = await dbLoadMessages(id);
     const dbConv = await queryOne('SELECT * FROM conversations WHERE id=$1', [id]).catch(() => null);
     const savedRepoCtx = dbConv ? {
       owner: dbConv.repo_owner, repo: dbConv.repo_name, branch: dbConv.repo_branch
     } : null;
-
     const repoCtx = repoContext || savedRepoCtx;
     const systemContent = await buildSystemPrompt(repoCtx);
-
     conv = {
       id,
       messages: dbMessages && dbMessages.length > 0
@@ -646,6 +822,7 @@ async function runAiJob(job, emitters) {
       repoCtx,
       testsPassed: false,
       lastEditBranch: null,
+      lastPR: null,
       sshKey: sshKey || dbConv?.ssh_key || null
     };
     conversations.set(id, conv);
@@ -682,7 +859,6 @@ router.post('/chat', requireAuth, async (req, res) => {
 
   const id = conversationId || Math.random().toString(36).slice(2);
 
-  // Create conversation if new
   if (!conversations.has(id)) {
     const systemContent = await buildSystemPrompt(repoContext || null);
     conversations.set(id, {
@@ -691,6 +867,7 @@ router.post('/chat', requireAuth, async (req, res) => {
       repoCtx: repoContext || null,
       testsPassed: false,
       lastEditBranch: null,
+      lastPR: null,
       sshKey: sshKey || null
     });
     await dbSaveConversation(id, repoContext || null, sshKey || null);
@@ -708,18 +885,38 @@ router.post('/chat', requireAuth, async (req, res) => {
   });
 
   const jobId = await enqueue('ai-task', { message, conversationId: id, repoContext, fileContext, sshKey });
-
   updateWorkflow(wf.id, { status: 'running', description: `Job ${jobId}` });
 
   res.json({ jobId, conversationId: id, workflowId: wf.id });
 });
 
-// GET /orchestrator/conversations/:id — fetch conversation history
+// GET /orchestrator/conversations — list all conversations (most recent first)
+router.get('/conversations', requireAuth, async (req, res) => {
+  if (await dbAvailable()) {
+    const result = await query(
+      `SELECT id, repo_owner, repo_name, repo_branch, summary, created_at, updated_at
+       FROM conversations ORDER BY updated_at DESC LIMIT 50`
+    ).catch(() => ({ rows: [] }));
+    return res.json(result.rows);
+  }
+  // In-memory fallback
+  const list = [...conversations.values()].map(c => ({
+    id: c.id,
+    repo_owner:  c.repoCtx?.owner  || null,
+    repo_name:   c.repoCtx?.repo   || null,
+    repo_branch: c.repoCtx?.branch || 'main',
+    summary:     '',
+    created_at:  new Date().toISOString(),
+    updated_at:  new Date().toISOString()
+  }));
+  res.json(list);
+});
+
+// GET /orchestrator/conversations/:id — fetch conversation messages
 router.get('/conversations/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   const dbMessages = await dbLoadMessages(id).catch(() => null);
   if (dbMessages) return res.json({ conversationId: id, messages: dbMessages });
-
   const conv = conversations.get(id);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
   res.json({ conversationId: id, messages: conv.messages.filter(m => m.role !== 'system') });
@@ -731,8 +928,7 @@ router.post('/context/repo', requireAuth, (req, res) => {
   const conv = conversations.get(conversationId);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
   conv.repoCtx = repoContext;
-  const summary = `[Repo updated: ${repoContext.owner}/${repoContext.repo}]`;
-  conv.messages.push({ role: 'user', content: summary });
+  conv.messages.push({ role: 'user', content: `[Repo updated: ${repoContext.owner}/${repoContext.repo}]` });
   conv.messages.push({ role: 'assistant', content: `Got it. I now have context for \`${repoContext.owner}/${repoContext.repo}\` (${repoContext.fileCount} files on \`${repoContext.branch}\`). What would you like me to do?` });
   res.json({ success: true });
 });

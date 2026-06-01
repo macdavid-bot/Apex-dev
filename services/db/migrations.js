@@ -63,15 +63,19 @@ CREATE TABLE IF NOT EXISTS approvals (
   updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- SSH / VPS sessions
+-- SSH / VPS servers (DB-backed, persists across restarts)
 CREATE TABLE IF NOT EXISTS ssh_sessions (
-  id          TEXT PRIMARY KEY,
-  label       TEXT NOT NULL,
-  host        TEXT NOT NULL,
-  port        INT  NOT NULL DEFAULT 22,
-  username    TEXT NOT NULL,
-  private_key TEXT NOT NULL,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  id               TEXT PRIMARY KEY,
+  label            TEXT NOT NULL,
+  host             TEXT NOT NULL,
+  port             INT  NOT NULL DEFAULT 22,
+  username         TEXT NOT NULL,
+  private_key      TEXT NOT NULL,
+  env_file         TEXT DEFAULT '.env',
+  service_name     TEXT DEFAULT '',
+  deploy_dir       TEXT DEFAULT '',
+  deploy_commands  TEXT DEFAULT '',
+  created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Per-project memory (facts + summary)
@@ -97,10 +101,21 @@ CREATE INDEX IF NOT EXISTS code_chunks_tsv_idx  ON code_chunks USING GIN(content
 CREATE UNIQUE INDEX IF NOT EXISTS code_chunks_unique ON code_chunks(repo_key, file_path, chunk_index);
 `;
 
+// Safe column additions for existing deployments
+const ALTER_DDL = `
+DO $$ BEGIN
+  BEGIN ALTER TABLE ssh_sessions ADD COLUMN env_file        TEXT DEFAULT '.env'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE ssh_sessions ADD COLUMN service_name    TEXT DEFAULT '';     EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE ssh_sessions ADD COLUMN deploy_dir      TEXT DEFAULT '';     EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE ssh_sessions ADD COLUMN deploy_commands TEXT DEFAULT '';     EXCEPTION WHEN duplicate_column THEN NULL; END;
+END $$;
+`;
+
 export async function runMigrations() {
   const pool = getPool();
   try {
     await pool.query(DDL);
+    await pool.query(ALTER_DDL);
     console.log('[DB] Migrations applied');
   } catch (err) {
     console.error('[DB] Migration error:', err.message);

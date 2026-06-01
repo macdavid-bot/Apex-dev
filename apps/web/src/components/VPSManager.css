@@ -1,0 +1,294 @@
+.vps-manager {
+  padding: 24px;
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  color: #c9d1d9;
+}
+
+.vps-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.vps-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  color: #e6edf3;
+}
+
+.muted {
+  color: #8b949e;
+  font-size: 13px;
+}
+
+/* ── Add form ── */
+.vps-add-form {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.vps-add-form h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: #e6edf3;
+}
+
+.vps-form-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.vps-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.vps-form-group--sm { flex: 0 0 80px; min-width: 80px; }
+
+.vps-form-group label {
+  font-size: 12px;
+  color: #8b949e;
+  font-weight: 500;
+}
+
+.vps-form-group input,
+.vps-form-group textarea,
+.vps-form-group select {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #c9d1d9;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.vps-form-group input:focus,
+.vps-form-group textarea:focus,
+.vps-form-group select:focus {
+  border-color: #388bfd;
+}
+
+.vps-form-group textarea {
+  resize: vertical;
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+.vps-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── Empty state ── */
+.vps-empty {
+  background: #161b22;
+  border: 1px dashed #30363d;
+  border-radius: 10px;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  font-size: 14px;
+}
+
+/* ── Server list ── */
+.vps-server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vps-server-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vps-server-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.vps-server-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.vps-server-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #e6edf3;
+}
+
+.vps-server-host {
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.vps-server-meta {
+  font-size: 12px;
+  color: #6e7681;
+}
+
+.vps-server-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn-sm {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  background: #21262d;
+  color: #c9d1d9;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-sm:hover { background: #30363d; }
+.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm-ok  { border-color: #2ea043; color: #3fb950; }
+.btn-sm-err { border-color: #da3633; color: #f85149; }
+.btn-sm-del { border-color: #da3633; color: #f85149; }
+.btn-sm-del:hover { background: #2d0f0f; }
+.btn-sm-deploy { border-color: #388bfd; color: #58a6ff; }
+.btn-sm-deploy:hover { background: #1c2128; }
+
+.vps-test-info {
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  color: #3fb950;
+  background: #0d2119;
+  border: 1px solid #1a4731;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.vps-test-error {
+  font-size: 12px;
+  color: #f85149;
+  background: #2d0f0f;
+  border: 1px solid #5a1d1d;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+/* ── Deploy log ── */
+.vps-deploy-log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: 'Fira Code', monospace;
+}
+
+.deploy-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.deploy-step-icon { flex-shrink: 0; width: 14px; text-align: center; }
+.deploy-step-running { color: #8b949e; }
+.deploy-step-done    { color: #3fb950; }
+.deploy-step-error   { color: #f85149; }
+
+.deploy-step-detail {
+  margin: 2px 0 0 22px;
+  padding: 4px 8px;
+  background: #161b22;
+  border-radius: 4px;
+  color: #8b949e;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Env injection ── */
+.vps-env-section {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vps-env-section h3 {
+  margin: 0;
+  font-size: 15px;
+  color: #e6edf3;
+}
+
+.vps-env-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vps-env-result {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'Fira Code', monospace;
+}
+
+.vps-env-result.ok  { background: #0d2119; border: 1px solid #1a4731; color: #3fb950; }
+.vps-env-result.err { background: #2d0f0f; border: 1px solid #5a1d1d; color: #f85149; }
+
+/* ── Spinner ── */
+.spin-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Shared button ── */
+.btn-primary {
+  background: #238636;
+  color: #fff;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-primary:hover:not(:disabled) { background: #2ea043; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }

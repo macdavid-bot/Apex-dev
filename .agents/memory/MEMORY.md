@@ -2,3 +2,6 @@
 - [Streaming & Background Jobs](streaming-jobs.md) — POST /orchestrator/chat enqueues to DB job_queue; worker polls every 2s; SSE via GET /jobs/:id/stream with EventEmitter; requireAuth accepts query ?token= for EventSource compatibility
 - [Real-time Terminal](terminal-ws.md) — WebSocket at /ws/terminal; child_process.spawn (not node-pty) for reliability; xterm.js on frontend; auth via ?token= query param
 - [Package Scope](pkg-scope.md) — shared services/ (services/db, services/auth, services/queue, services/memory, services/embeddings) must be installed at workspace root with pnpm add -w, not inside apps/api
+- [Step event flow](step-events.md) — worker emitStep → jobEvents 'step' → jobs.js SSE → Dashboard liveSteps; steps keyed by index so running→done updates in-place; cleared on SSE 'done'
+- [VPS server storage](vps-storage.md) — ssh_sessions table; new columns (env_file, service_name, deploy_dir, deploy_commands) added via DO $$ BEGIN ALTER TABLE ADD COLUMN … EXCEPTION WHEN duplicate_column THEN NULL; END $$
+- [Orchestrator VPS injection](orchestrator-vps.md) — buildSystemPrompt queries listVpsServers() and appends server IDs to system prompt so AI knows valid session IDs for run_vps/deploy_to_vps/set_vps_env

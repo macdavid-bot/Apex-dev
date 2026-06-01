@@ -1,12 +1,10 @@
-// Background job worker — runs AI tasks server-side, survives client disconnects.
-// Uses EventEmitter to push live tokens/actions to SSE subscribers.
 import { EventEmitter } from 'events';
 import { claimNextJob, completeJob, failJob, updateProgress } from './store.js';
 
 export const jobEvents = new EventEmitter();
 jobEvents.setMaxListeners(100);
 
-let _runJob = null; // set by orchestrator to avoid circular imports
+let _runJob = null;
 
 export function registerJobRunner(fn) {
   _runJob = fn;
@@ -21,7 +19,7 @@ async function tick() {
   try {
     job = await claimNextJob();
   } catch {
-    return; // DB not available yet — skip silently
+    return;
   }
   if (!job) return;
 
@@ -33,6 +31,7 @@ async function tick() {
     const result = await _runJob(job, {
       emitToken:    (token)    => jobEvents.emit('token',    { jobId: job.id, token }),
       emitAction:   (action)   => jobEvents.emit('action',   { jobId: job.id, action }),
+      emitStep:     (step)     => jobEvents.emit('step',     { jobId: job.id, step }),
       emitProgress: (progress) => {
         updateProgress(job.id, progress).catch(() => {});
         jobEvents.emit('progress', { jobId: job.id, progress });
@@ -53,5 +52,5 @@ async function tick() {
 export function startWorker(intervalMs = 2000) {
   console.log('[Worker] Background job worker started');
   setInterval(tick, intervalMs);
-  tick(); // run immediately on start
+  tick();
 }

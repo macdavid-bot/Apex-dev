@@ -324,3 +324,131 @@
   padding: 12px 8px 0;
   border-top: 1px solid #21262d;
 }
+
+/* ── Ghost button ────────────────────────────────────────── */
+.ghost-btn {
+  background: transparent;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #8b949e;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ghost-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+
+/* ── Conversation history ─────────────────────────────────── */
+.sidebar-history {
+  padding: 8px 6px;
+  border-top: 1px solid #21262d;
+  overflow-y: auto;
+  max-height: 220px;
+}
+
+.sidebar-history-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6e7681;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 4px 8px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-loading { color: #8b949e; font-size: 10px; }
+
+.history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #8b949e;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+  overflow: hidden;
+}
+
+.history-item:hover     { background: #21262d; color: #c9d1d9; }
+.history-item-active    { background: #1c2128 !important; color: #58a6ff !important; border-left: 2px solid #58a6ff; }
+
+.history-repo {
+  font-weight: 500;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-date {
+  font-size: 10px;
+  color: #6e7681;
+}
+
+/* ── Redeploy CTA ─────────────────────────────────────────── */
+.redeploy-cta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  background: #1c2128;
+  border-top: 1px solid #30363d;
+  border-bottom: 1px solid #21262d;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.redeploy-cta-text {
+  font-size: 13px;
+  color: #c9d1d9;
+  flex: 1;
+  min-width: 200px;
+}
+
+.redeploy-server-select {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #c9d1d9;
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.redeploy-btn {
+  background: #1a3b5c;
+  border: 1px solid #388bfd;
+  border-radius: 6px;
+  color: #58a6ff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.redeploy-btn:hover:not(:disabled) { background: #1f4073; }
+.redeploy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.redeploy-dismiss {
+  background: transparent;
+  border: none;
+  color: #6e7681;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: color 0.12s;
+}
+.redeploy-dismiss:hover { color: #c9d1d9; }
+
+/* ── Sidebar nav scroll fix ───────────────────────────────── */
+.sidebar-nav { flex: 0 0 auto; }

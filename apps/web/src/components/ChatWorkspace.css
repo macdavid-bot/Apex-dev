@@ -217,3 +217,70 @@ h5.md-heading { font-size: 12px; }
   text-decoration: none;
 }
 .action-step-link:hover { text-decoration: underline; }
+
+/* ── Live Activity Log (Replit-style step feed) ──────────── */
+.live-activity-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+}
+
+.activity-step {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  padding: 2px 0;
+  line-height: 1.5;
+}
+
+.activity-status-icon {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 11px;
+}
+
+.activity-icon {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.activity-label {
+  color: #c9d1d9;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-detail {
+  color: #6e7681;
+  font-size: 11px;
+  margin-left: 21px;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 400px;
+}
+
+.activity-step-running .activity-status-icon { color: #8b949e; }
+.activity-step-running .activity-label       { color: #8b949e; }
+.activity-step-done    .activity-status-icon { color: #3fb950; }
+.activity-step-done    .activity-label       { color: #c9d1d9; }
+.activity-step-error   .activity-status-icon { color: #f85149; }
+.activity-step-error   .activity-label       { color: #f85149; }
+
+/* ── Spinner ─────────────────────────────────────────────── */
+.spin-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

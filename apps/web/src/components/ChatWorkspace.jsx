@@ -11,7 +11,6 @@ function renderMarkdown(text) {
   while (i < lines.length) {
     const line = lines[i];
 
-    // Fenced code block
     if (line.startsWith('```')) {
       const lang = line.slice(3).trim();
       const codeLines = [];
@@ -28,7 +27,6 @@ function renderMarkdown(text) {
       i++; continue;
     }
 
-    // Heading
     const hMatch = line.match(/^(#{1,3})\s+(.*)/);
     if (hMatch) {
       const lvl = hMatch[1].length;
@@ -37,10 +35,8 @@ function renderMarkdown(text) {
       i++; continue;
     }
 
-    // Horizontal rule
     if (line.match(/^---+$/)) { elements.push(<hr key={key++} className="md-hr" />); i++; continue; }
 
-    // Unordered list
     if (line.match(/^[-*]\s+(.*)/)) {
       const items = [];
       while (i < lines.length && lines[i].match(/^[-*]\s+(.*)/)) {
@@ -50,7 +46,6 @@ function renderMarkdown(text) {
       continue;
     }
 
-    // Numbered list
     if (line.match(/^\d+\.\s+(.*)/)) {
       const items = [];
       while (i < lines.length && lines[i].match(/^\d+\.\s+(.*)/)) {
@@ -60,7 +55,6 @@ function renderMarkdown(text) {
       continue;
     }
 
-    // Table
     if (line.includes('|') && lines[i + 1]?.match(/^[\s|:-]+$/)) {
       const rows = [];
       while (i < lines.length && lines[i].includes('|')) {
@@ -95,16 +89,68 @@ function inlineFormat(text) {
   while ((match = regex.exec(text)) !== null) {
     if (match.index > last) parts.push(<span key={k++}>{text.slice(last, match.index)}</span>);
     const tok = match[0];
-    if (tok.startsWith('**'))      parts.push(<strong key={k++}>{tok.slice(2, -2)}</strong>);
-    else if (tok.startsWith('*'))  parts.push(<em key={k++}>{tok.slice(1, -1)}</em>);
-    else                           parts.push(<code key={k++} className="md-inline-code">{tok.slice(1, -1)}</code>);
+    if (tok.startsWith('**'))     parts.push(<strong key={k++}>{tok.slice(2, -2)}</strong>);
+    else if (tok.startsWith('*')) parts.push(<em key={k++}>{tok.slice(1, -1)}</em>);
+    else                          parts.push(<code key={k++} className="md-inline-code">{tok.slice(1, -1)}</code>);
     last = match.index + tok.length;
   }
   if (last < text.length) parts.push(<span key={k++}>{text.slice(last)}</span>);
   return parts.length ? parts : text;
 }
 
-// ── Action display ─────────────────────────────────────────────────────────────
+// ── Live Activity Log (Replit-style step feed) ─────────────────────────────────
+
+const STEP_ICONS = {
+  read_file:           '📂',
+  edit_file:           '✏️',
+  list_files:          '📋',
+  search_repo:         '🔎',
+  search_code_fts:     '🔎',
+  create_branch:       '🌿',
+  git_diff:            '🔍',
+  run_tests:           '🧪',
+  run_local:           '⚡',
+  run_vps:             '🖥️',
+  create_pull_request: '🔀',
+  recall_memory:       '🧠',
+  add_memory:          '💾',
+  deploy_to_vps:       '🚀',
+  set_vps_env:         '🔐',
+};
+
+function LiveActivityLog({ steps }) {
+  if (!steps || steps.length === 0) return null;
+
+  // Deduplicate: keep only the latest entry per step index
+  const latestByIdx = new Map();
+  for (const s of steps) latestByIdx.set(s.index, s);
+  const deduped = [...latestByIdx.values()].sort((a, b) => a.index - b.index);
+
+  return (
+    <div className="live-activity-log">
+      {deduped.map((step, i) => {
+        const icon = STEP_ICONS[step.actionType] || '🔧';
+        const isRunning = step.status === 'running';
+        const isError   = step.status === 'error';
+        return (
+          <div key={i} className={`activity-step activity-step-${step.status}`}>
+            <span className="activity-status-icon">
+              {isRunning ? <span className="spin-icon">⟳</span> : isError ? '✗' : '✓'}
+            </span>
+            <span className="activity-icon">{icon}</span>
+            <span className="activity-label">{step.label}</span>
+            {step.detail && !isRunning && (
+              <span className="activity-detail">{step.detail.slice(0, 120)}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Completed action steps ─────────────────────────────────────────────────────
+
 const ACTION_ICONS = {
   read_file:            '📂',
   edit_file:            '✏️',
@@ -119,6 +165,8 @@ const ACTION_ICONS = {
   create_pull_request:  '🔀',
   recall_memory:        '🧠',
   add_memory:           '💾',
+  deploy_to_vps:        '🚀',
+  set_vps_env:          '🔐',
   parse_error:          '⚠️',
 };
 
@@ -130,12 +178,12 @@ function ActionSteps({ actions }) {
         const icon  = ACTION_ICONS[a.type] || '🔧';
         const isErr = !!(a.result?.error || a.type === 'parse_error');
         let label   = `${icon} ${a.type}`;
-        if (a.type === 'edit_file')           label = `${icon} Edited \`${a.params?.path}\` → \`${a.params?.branch || 'branch'}\``;
-        if (a.type === 'read_file')           label = `${icon} Read \`${a.params?.path}\``;
+        if (a.type === 'edit_file')           label = `${icon} Edited \`${a.params?.path}\`${a.result?.commitSha ? ' → committed' : ''}`;
+        if (a.type === 'read_file')           label = `${icon} Read \`${a.params?.path}\`${a.result?.lines ? ` (${a.result.lines} lines)` : ''}`;
         if (a.type === 'create_branch')       label = `${icon} Branch \`${a.params?.branch}\``;
-        if (a.type === 'run_local')           label = `${icon} Local: \`${(a.params?.command || '').slice(0, 60)}\``;
+        if (a.type === 'run_local')           label = `${icon} \`${(a.params?.command || '').slice(0, 60)}\``;
         if (a.type === 'run_vps')             label = `${icon} VPS: \`${(a.params?.command || '').slice(0, 60)}\``;
-        if (a.type === 'list_files')          label = `${icon} List \`${a.params?.path || '/'}\``;
+        if (a.type === 'list_files')          label = `${icon} Listed \`${a.params?.path || '/'}\``;
         if (a.type === 'git_diff')            label = `${icon} Diff \`${a.params?.base}\`→\`${a.params?.head || 'HEAD'}\``;
         if (a.type === 'search_repo')         label = `${icon} Search: "${(a.params?.query || '').slice(0, 40)}"`;
         if (a.type === 'search_code_fts')     label = `${icon} FTS: "${(a.params?.query || '').slice(0, 40)}"`;
@@ -143,8 +191,10 @@ function ActionSteps({ actions }) {
         if (a.type === 'create_pull_request') label = `${icon} PR #${a.result?.prNumber || '?'}: ${(a.params?.title || '').slice(0, 40)}`;
         if (a.type === 'recall_memory')       label = `${icon} Recalled project memory`;
         if (a.type === 'add_memory')          label = `${icon} Remembered: "${(a.params?.fact || '').slice(0, 50)}"`;
+        if (a.type === 'deploy_to_vps')       label = `${icon} Deployed to VPS ${a.result?.error ? '❌' : '✓'}`;
+        if (a.type === 'set_vps_env')         label = `${icon} Set \`${a.params?.key}\` on VPS ${a.result?.error ? '❌' : '✓'}`;
 
-        const cmdOutput = (a.type === 'run_local' || a.type === 'run_vps' || a.type === 'run_tests') && !isErr
+        const cmdOutput = ['run_local','run_vps','run_tests','deploy_to_vps'].includes(a.type) && !isErr
           ? ((a.result?.stdout || a.result?.stderr || '').slice(0, 600))
           : null;
         const prUrl = a.type === 'create_pull_request' && a.result?.url;
@@ -152,7 +202,7 @@ function ActionSteps({ actions }) {
         return (
           <div key={i} className={`action-step ${isErr ? 'action-step-err' : 'action-step-ok'}`}>
             <span className="action-step-label">{label}</span>
-            {isErr && <span className="action-step-detail">{a.result?.error || a.result?.hint || a.error}</span>}
+            {isErr && <span className="action-step-detail">{a.result?.error || a.error}</span>}
             {cmdOutput && <pre className="action-step-output">{cmdOutput}{((a.result?.stdout?.length || 0) > 600) ? '…' : ''}</pre>}
             {prUrl && <a className="action-step-link" href={prUrl} target="_blank" rel="noreferrer">View PR ↗</a>}
           </div>
@@ -162,15 +212,18 @@ function ActionSteps({ actions }) {
   );
 }
 
-// ── Streaming indicator ────────────────────────────────────────────────────────
-function StreamingMessage({ content }) {
+// ── Streaming indicator with live log ─────────────────────────────────────────
+
+function StreamingMessage({ content, liveSteps }) {
+  const hasSteps = liveSteps && liveSteps.length > 0;
   return (
     <div className="message-row assistant">
       <div className="message-bubble streaming-bubble">
+        {hasSteps && <LiveActivityLog steps={liveSteps} />}
         {content ? (
           <div className="message-md">{renderMarkdown(content)}<span className="stream-cursor" /></div>
         ) : (
-          <div className="typing"><span /><span /><span /></div>
+          !hasSteps && <div className="typing"><span /><span /><span /></div>
         )}
       </div>
     </div>
@@ -178,12 +231,12 @@ function StreamingMessage({ content }) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function ChatWorkspace({ messages = [], loading = false, streamingContent = '' }) {
+export default function ChatWorkspace({ messages = [], loading = false, streamingContent = '', liveSteps = [] }) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading, streamingContent]);
+  }, [messages, loading, streamingContent, liveSteps]);
 
   return (
     <div className="chat-messages">
@@ -202,8 +255,7 @@ export default function ChatWorkspace({ messages = [], loading = false, streamin
         </div>
       ))}
 
-      {/* Live streaming response */}
-      {loading && <StreamingMessage content={streamingContent} />}
+      {loading && <StreamingMessage content={streamingContent} liveSteps={liveSteps} />}
 
       <div ref={bottomRef} />
     </div>

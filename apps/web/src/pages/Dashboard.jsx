@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import ChatWorkspace from '../components/ChatWorkspace';
 import ApprovalPanel from '../components/ApprovalPanel';
 import DeploymentPanel from '../components/DeploymentPanel';
@@ -7,19 +7,30 @@ import TerminalPanel from '../components/TerminalPanel';
 import ValidationPanel from '../components/ValidationPanel';
 import WorkflowTimeline from '../components/WorkflowTimeline';
 import SSHKeyManager from '../components/SSHKeyManager';
+import VPSManager from '../components/VPSManager';
 import { authHeaders, getToken } from '../hooks/useAuth';
 import './Dashboard.css';
 
 const TABS = [
-  { id: 'chat',       label: 'Chat',       icon: '💬' },
-  { id: 'workflows',  label: 'Workflows',  icon: '⚙️' },
-  { id: 'approvals',  label: 'Approvals',  icon: '✅' },
-  { id: 'repository', label: 'Repository', icon: '📁' },
-  { id: 'terminal',   label: 'Terminal',   icon: '🖥️' },
-  { id: 'validation', label: 'Validation', icon: '🔍' },
-  { id: 'deployment', label: 'Deployment', icon: '🚀' },
-  { id: 'ssh',        label: 'SSH Keys',   icon: '🔑' },
+  { id: 'chat',       label: 'Chat',        icon: '💬' },
+  { id: 'workflows',  label: 'Workflows',   icon: '⚙️' },
+  { id: 'approvals',  label: 'Approvals',   icon: '✅' },
+  { id: 'repository', label: 'Repository',  icon: '📁' },
+  { id: 'terminal',   label: 'Terminal',    icon: '🖥️' },
+  { id: 'validation', label: 'Validation',  icon: '🔍' },
+  { id: 'deployment', label: 'Deployment',  icon: '🚀' },
+  { id: 'vps',        label: 'VPS Servers', icon: '⚡' },
+  { id: 'ssh',        label: 'SSH Keys',    icon: '🔑' },
 ];
+
+function formatRelative(dateStr) {
+  if (!dateStr) return '';
+  const diff = (Date.now() - new Date(dateStr)) / 1000;
+  if (diff < 60)    return 'just now';
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
 
 export default function Dashboard({ user, onLogout }) {
   const [activeTab, setActiveTab]   = useState('chat');
@@ -31,20 +42,90 @@ export default function Dashboard({ user, onLogout }) {
   ]);
   const [input, setInput]           = useState('');
   const [loading, setLoading]       = useState(false);
-  const [streaming, setStreaming]   = useState('');   // partial streamed text
+  const [streaming, setStreaming]   = useState('');
+  const [liveSteps, setLiveSteps]   = useState([]);
   const [convId, setConvId]         = useState(null);
   const [repoCtx, setRepoCtx]       = useState(null);
   const [fileCtx, setFileCtx]       = useState(null);
 
-  // New conversation modal — SSH key entry
+  // Conversation history
+  const [conversations, setConversations]   = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // VPS servers (for redeploy CTA)
+  const [vpsServers, setVpsServers]   = useState([]);
+  const [showRedeployCta, setShowRedeployCta] = useState(false);
+  const [redeployServerId, setRedeployServerId] = useState('');
+
+  // SSH modal
   const [showSshModal, setShowSshModal] = useState(false);
   const [pendingMsg, setPendingMsg]     = useState('');
   const [sshKeyInput, setSshKeyInput]   = useState('');
   const sseRef = useRef(null);
 
+  // ── Fetch helpers ──────────────────────────────────────────────────────────
+
+  const fetchConversations = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch('/orchestrator/conversations', { headers: authHeaders() });
+      if (res.ok) setConversations(await res.json());
+    } catch {}
+    setHistoryLoading(false);
+  }, []);
+
+  const fetchVpsServers = useCallback(async () => {
+    try {
+      const res = await fetch('/vps/servers', { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setVpsServers(data);
+        if (data.length > 0 && !redeployServerId) setRedeployServerId(data[0].id);
+      }
+    } catch {}
+  }, [redeployServerId]);
+
+  useEffect(() => {
+    fetchConversations();
+    fetchVpsServers();
+  }, []);
+
+  // ── Load conversation from history ────────────────────────────────────────
+
+  async function loadConversation(conv) {
+    if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
+    setLoading(false);
+    setStreaming('');
+    setLiveSteps([]);
+    setShowRedeployCta(false);
+    setConvId(conv.id);
+
+    if (conv.repo_owner) {
+      setRepoCtx({ owner: conv.repo_owner, repo: conv.repo_name, branch: conv.repo_branch || 'main' });
+    }
+
+    try {
+      const res = await fetch(`/orchestrator/conversations/${conv.id}`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        const msgs = data.messages
+          .filter(m => m.role !== 'system')
+          .map(m => ({ role: m.role, content: m.content, actions: m.actions }));
+        setMessages(msgs.length > 0 ? msgs : [{ role: 'assistant', content: 'Conversation loaded.' }]);
+      }
+    } catch {
+      setMessages([{ role: 'assistant', content: 'Could not load conversation.' }]);
+    }
+    setActiveTab('chat');
+  }
+
+  // ── Repo & file handlers ──────────────────────────────────────────────────
+
   function handleRepoLoaded(repo) {
     setConvId(null);
     setRepoCtx(repo);
+    setLiveSteps([]);
+    setShowRedeployCta(false);
     setMessages([{
       role: 'assistant',
       content: `Repository loaded: **${repo.owner}/${repo.repo}** (${repo.fileCount} files, ${repo.language || 'unknown language'})\n\nI have the full file tree in context. I can:\n• Explain, review, or refactor code\n• Add features to specific files\n• Run tests and open pull requests\n\nOpen any file and say "edit this file" to start.`
@@ -54,13 +135,16 @@ export default function Dashboard({ user, onLogout }) {
   function handleFileLoaded(file) { setFileCtx(file); }
   function askAI(prompt) { setActiveTab('chat'); setInput(prompt); }
 
-  // Start a new chat (reset conversation)
   function newChat() {
+    if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
     setConvId(null);
     setStreaming('');
+    setLiveSteps([]);
+    setShowRedeployCta(false);
     setMessages([{ role: 'assistant', content: 'New conversation started. How can I help?' }]);
-    sseRef.current?.close();
   }
+
+  // ── Send message ──────────────────────────────────────────────────────────
 
   async function sendMessage(text, sshKey = null) {
     if (!text.trim() || loading) return;
@@ -70,6 +154,8 @@ export default function Dashboard({ user, onLogout }) {
     setInput('');
     setLoading(true);
     setStreaming('');
+    setLiveSteps([]);
+    setShowRedeployCta(false);
 
     const isNewConv = !convId;
 
@@ -95,11 +181,14 @@ export default function Dashboard({ user, onLogout }) {
         return;
       }
 
-      if (data.conversationId) setConvId(data.conversationId);
+      if (data.conversationId) {
+        setConvId(data.conversationId);
+        // Refresh history after short delay
+        setTimeout(fetchConversations, 1500);
+      }
 
-      // Subscribe to live job stream
       const jobId = data.jobId;
-      let accumulated = '';
+      let accumulated  = '';
       let executedActions = [];
 
       const evtSource = new EventSource(`/jobs/${jobId}/stream?token=${encodeURIComponent(getToken())}`);
@@ -118,6 +207,19 @@ export default function Dashboard({ user, onLogout }) {
         executedActions.push(action);
       });
 
+      evtSource.addEventListener('step', e => {
+        const { step } = JSON.parse(e.data);
+        setLiveSteps(prev => {
+          const idx = prev.findIndex(s => s.index === step.index);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = step;
+            return updated;
+          }
+          return [...prev, step];
+        });
+      });
+
       evtSource.addEventListener('progress', e => {
         const { progress } = JSON.parse(e.data);
         setStreaming(prev => prev || `_${progress}_`);
@@ -128,13 +230,21 @@ export default function Dashboard({ user, onLogout }) {
         evtSource.close();
         sseRef.current = null;
         setStreaming('');
-        const finalContent = result.result?.response || accumulated || 'Task completed.';
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: finalContent,
-          actions: result.result?.executedActions || executedActions
-        }]);
+        setLiveSteps([]);
+
+        const finalContent  = result.result?.response || accumulated || 'Task completed.';
+        const finalActions  = result.result?.executedActions || executedActions;
+
+        setMessages(prev => [...prev, { role: 'assistant', content: finalContent, actions: finalActions }]);
         setLoading(false);
+
+        // Show redeploy CTA if there were code changes and VPS servers exist
+        const hadEdits = finalActions.some(a => ['edit_file', 'create_pull_request', 'run_tests'].includes(a.type));
+        if (hadEdits && vpsServers.length > 0) {
+          setShowRedeployCta(true);
+        }
+
+        setTimeout(fetchConversations, 1000);
       });
 
       evtSource.addEventListener('error', e => {
@@ -142,6 +252,7 @@ export default function Dashboard({ user, onLogout }) {
         sseRef.current = null;
         const errData = e.data ? JSON.parse(e.data) : {};
         setStreaming('');
+        setLiveSteps([]);
         if (accumulated) {
           setMessages(prev => [...prev, { role: 'assistant', content: accumulated }]);
         } else {
@@ -151,11 +262,11 @@ export default function Dashboard({ user, onLogout }) {
       });
 
       evtSource.onerror = () => {
-        // If SSE drops but we already got tokens, it might just be the stream closing
-        if (!evtSource.readyState === EventSource.CLOSED) return;
+        if (evtSource.readyState === EventSource.CLOSED) return;
         evtSource.close();
         sseRef.current = null;
         setStreaming('');
+        setLiveSteps([]);
         if (accumulated) {
           setMessages(prev => [...prev, { role: 'assistant', content: accumulated }]);
         }
@@ -171,14 +282,11 @@ export default function Dashboard({ user, onLogout }) {
   async function handleSend() {
     const text = input.trim();
     if (!text || loading) return;
-
-    // First message of a new conv — show SSH modal (only if repo is loaded, or always)
     if (!convId) {
       setPendingMsg(text);
       setShowSshModal(true);
       return;
     }
-
     sendMessage(text);
   }
 
@@ -194,6 +302,13 @@ export default function Dashboard({ user, onLogout }) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }
 
+  function handleRedeploy() {
+    setShowRedeployCta(false);
+    const server = vpsServers.find(s => s.id === redeployServerId) || vpsServers[0];
+    if (!server) return;
+    sendMessage(`Deploy the latest changes to the VPS server "${server.label}" (ID: ${server.id}). Pull from GitHub${server.deploy_dir ? `, cd to ${server.deploy_dir},` : ''} install dependencies, and restart the service.`);
+  }
+
   const activeTabInfo = TABS.find(t => t.id === activeTab);
 
   return (
@@ -201,7 +316,7 @@ export default function Dashboard({ user, onLogout }) {
 
       {/* ── SSH Key Modal ── */}
       {showSshModal && (
-        <div className="modal-overlay" onClick={() => { setShowSshModal(false); }}>
+        <div className="modal-overlay" onClick={() => setShowSshModal(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>New Conversation — SSH Key</h3>
@@ -212,7 +327,7 @@ export default function Dashboard({ user, onLogout }) {
             </div>
             <textarea
               className="modal-ssh-input"
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+              placeholder={'-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----'}
               value={sshKeyInput}
               onChange={e => setSshKeyInput(e.target.value)}
               rows={8}
@@ -229,11 +344,13 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       )}
 
+      {/* ── Sidebar ── */}
       <aside className="sidebar">
         <div className="sidebar-brand">
           <span className="brand-icon">⬡</span>
           {sidebarOpen && <span className="brand-name">Apex Dev</span>}
         </div>
+
         <nav className="sidebar-nav">
           {TABS.map(tab => (
             <button key={tab.id}
@@ -244,6 +361,28 @@ export default function Dashboard({ user, onLogout }) {
             </button>
           ))}
         </nav>
+
+        {/* Conversation history */}
+        {sidebarOpen && conversations.length > 0 && (
+          <div className="sidebar-history">
+            <div className="sidebar-history-title">
+              Recent
+              {historyLoading && <span className="history-loading">…</span>}
+            </div>
+            {conversations.slice(0, 12).map(c => (
+              <button
+                key={c.id}
+                className={`history-item ${c.id === convId ? 'history-item-active' : ''}`}
+                onClick={() => loadConversation(c)}
+                title={`${c.repo_name || 'General'} — ${formatRelative(c.updated_at)}`}
+              >
+                <span className="history-repo">{c.repo_name || 'General'}</span>
+                <span className="history-date">{formatRelative(c.updated_at)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="sidebar-footer">
           {sidebarOpen && (
             <div style={{ fontSize: 12, color: '#8b949e', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -255,12 +394,14 @@ export default function Dashboard({ user, onLogout }) {
             {sidebarOpen && <span className="nav-label">Sign out</span>}
           </button>
         </div>
+
         <div className="sidebar-status">
           <span className="status-dot online" />
           {sidebarOpen && <span>{repoCtx ? `📁 ${repoCtx.repo}` : 'API Connected'}</span>}
         </div>
       </aside>
 
+      {/* ── Main ── */}
       <main className="main">
         <div className="topbar">
           <button className="sidebar-toggle" onClick={() => setSidebar(o => !o)}
@@ -269,12 +410,9 @@ export default function Dashboard({ user, onLogout }) {
           </button>
           <span className="topbar-title">{activeTabInfo?.icon} {activeTabInfo?.label}</span>
           {activeTab === 'chat' && (
-            <button
-              className="ghost-btn"
-              onClick={newChat}
+            <button className="ghost-btn" onClick={newChat}
               style={{ marginLeft: 'auto', marginRight: 8, fontSize: 12 }}
-              title="New conversation"
-            >
+              title="New conversation">
               + New Chat
             </button>
           )}
@@ -293,7 +431,32 @@ export default function Dashboard({ user, onLogout }) {
                 <button onClick={() => setFileCtx(null)}>✕</button>
               </div>
             )}
-            <ChatWorkspace messages={messages} loading={loading} streamingContent={streaming} />
+            <ChatWorkspace messages={messages} loading={loading} streamingContent={streaming} liveSteps={liveSteps} />
+
+            {/* Redeploy CTA */}
+            {showRedeployCta && (
+              <div className="redeploy-cta">
+                <span className="redeploy-cta-text">
+                  🚀 Changes are on GitHub. Deploy to your VPS?
+                </span>
+                {vpsServers.length > 1 && (
+                  <select
+                    className="redeploy-server-select"
+                    value={redeployServerId}
+                    onChange={e => setRedeployServerId(e.target.value)}
+                  >
+                    {vpsServers.map(s => (
+                      <option key={s.id} value={s.id}>{s.label}</option>
+                    ))}
+                  </select>
+                )}
+                <button className="redeploy-btn" onClick={handleRedeploy} disabled={loading}>
+                  Deploy now
+                </button>
+                <button className="redeploy-dismiss" onClick={() => setShowRedeployCta(false)} title="Dismiss">✕</button>
+              </div>
+            )}
+
             <div className="chat-footer">
               <textarea className="chat-input"
                 placeholder={fileCtx
@@ -323,6 +486,7 @@ export default function Dashboard({ user, onLogout }) {
         {activeTab === 'terminal'   && <TerminalPanel />}
         {activeTab === 'validation' && <ValidationPanel />}
         {activeTab === 'deployment' && <DeploymentPanel />}
+        {activeTab === 'vps'        && <VPSManager onServersChanged={fetchVpsServers} />}
         {activeTab === 'ssh'        && <SSHKeyManager />}
       </main>
     </div>
