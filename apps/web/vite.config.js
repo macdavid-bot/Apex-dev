@@ -8,6 +8,12 @@ export default defineConfig({
     port: 5000,
     allowedHosts: true,
     proxy: {
+      '/auth': 'http://localhost:3000',
+      '/jobs': 'http://localhost:3000',
+      '/ws': {
+        target: 'http://localhost:3000',
+        ws: true
+      },
       '/workflow': 'http://localhost:3000',
       '/shell': 'http://localhost:3000',
       '/approvals': 'http://localhost:3000',
