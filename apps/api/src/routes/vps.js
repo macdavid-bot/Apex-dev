@@ -285,6 +285,166 @@ router.get('/servers/:id/deploy', async (req, res) => {
   }
 });
 
+// ── VPS File Browser ──────────────────────────────────────────────────────────
+
+// GET /vps/servers/:id/fs/browse?path=/home/user
+router.get('/servers/:id/fs/browse', async (req, res) => {
+  const server = await dbGetServer(req.params.id);
+  if (!server) return res.status(404).json({ error: 'Server not found' });
+
+  const dirPath = req.query.path || '~';
+  const ssh = new NodeSSH();
+  try {
+    await ssh.connect({
+      host: server.host, port: server.port || 22,
+      username: server.username, privateKey: server.private_key,
+      readyTimeout: 10000
+    });
+    // Use ls -la --time-style=iso to get structured output
+    const lsCmd = `ls -la --time-style=iso "${dirPath}" 2>&1`;
+    const r = await ssh.execCommand(lsCmd);
+    const pwdR = await ssh.execCommand(`cd "${dirPath}" 2>/dev/null && pwd || echo "${dirPath}"`);
+    ssh.dispose();
+
+    if (r.code !== 0 && !r.stdout) {
+      return res.status(400).json({ error: r.stderr || 'Directory not found' });
+    }
+
+    // Parse ls -la output
+    const lines = r.stdout.split('\n').filter(Boolean);
+    const entries = [];
+    for (const line of lines) {
+      if (line.startsWith('total') || !line.trim()) continue;
+      const parts = line.split(/\s+/);
+      if (parts.length < 9) continue;
+      const perms = parts[0];
+      const size  = parts[4];
+      const date  = parts[5] + ' ' + parts[6];
+      const name  = parts.slice(7).join(' ');
+      if (name === '.' || name === '..') continue;
+      entries.push({
+        name,
+        type: perms.startsWith('d') ? 'dir' : perms.startsWith('l') ? 'link' : 'file',
+        size: parseInt(size) || 0,
+        permissions: perms,
+        modified: date
+      });
+    }
+
+    res.json({
+      path: pwdR.stdout.trim() || dirPath,
+      entries: entries.sort((a, b) => {
+        if (a.type === 'dir' && b.type !== 'dir') return -1;
+        if (a.type !== 'dir' && b.type === 'dir') return 1;
+        return a.name.localeCompare(b.name);
+      })
+    });
+  } catch (err) {
+    if (ssh.isConnected()) ssh.dispose();
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /vps/servers/:id/fs/read?path=/home/user/app.js
+router.get('/servers/:id/fs/read', async (req, res) => {
+  const server = await dbGetServer(req.params.id);
+  if (!server) return res.status(404).json({ error: 'Server not found' });
+  const filePath = req.query.path;
+  if (!filePath) return res.status(400).json({ error: 'path query parameter is required' });
+
+  const ssh = new NodeSSH();
+  try {
+    await ssh.connect({
+      host: server.host, port: server.port || 22,
+      username: server.username, privateKey: server.private_key,
+      readyTimeout: 10000
+    });
+    // Size check first (limit to 512KB)
+    const sizeR = await ssh.execCommand(`wc -c < "${filePath}" 2>/dev/null || echo 0`);
+    const size = parseInt(sizeR.stdout.trim()) || 0;
+    if (size > 524288) {
+      ssh.dispose();
+      return res.status(400).json({ error: `File too large (${Math.round(size / 1024)}KB). Max 512KB.` });
+    }
+    const r = await ssh.execCommand(`cat "${filePath}"`);
+    ssh.dispose();
+    if (r.code !== 0) return res.status(400).json({ error: r.stderr || 'Cannot read file' });
+    res.json({ path: filePath, content: r.stdout, size });
+  } catch (err) {
+    if (ssh.isConnected()) ssh.dispose();
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /vps/servers/:id/fs/write — write file content
+router.post('/servers/:id/fs/write', async (req, res) => {
+  const server = await dbGetServer(req.params.id);
+  if (!server) return res.status(404).json({ error: 'Server not found' });
+  const { path: filePath, content } = req.body;
+  if (!filePath || content === undefined) return res.status(400).json({ error: 'path and content are required' });
+
+  const ssh = new NodeSSH();
+  try {
+    await ssh.connect({
+      host: server.host, port: server.port || 22,
+      username: server.username, privateKey: server.private_key,
+      readyTimeout: 10000
+    });
+    // Write via heredoc to safely handle special chars
+    const escaped = content.replace(/\\/g, '\\\\').replace(/\$/g, '\\$').replace(/`/g, '\\`');
+    const writeCmd = `cat > "${filePath}" << 'APEX_HEREDOC'\n${content}\nAPEX_HEREDOC`;
+    const r = await ssh.execCommand(`mkdir -p "$(dirname "${filePath}")" && cat > "${filePath}"`, {
+      stdin: content
+    });
+    ssh.dispose();
+    res.json({ success: true, path: filePath, bytes: Buffer.byteLength(content, 'utf8') });
+  } catch (err) {
+    if (ssh.isConnected()) ssh.dispose();
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /vps/servers/:id/fs/delete — delete file or empty directory
+router.post('/servers/:id/fs/delete', async (req, res) => {
+  const server = await dbGetServer(req.params.id);
+  if (!server) return res.status(404).json({ error: 'Server not found' });
+  const { path: filePath, recursive = false } = req.body;
+  if (!filePath) return res.status(400).json({ error: 'path is required' });
+  // Safety: block deleting / or home root
+  if (/^\/+$/.test(filePath) || filePath === '~') return res.status(400).json({ error: 'Cannot delete root' });
+
+  const ssh = new NodeSSH();
+  try {
+    await ssh.connect({
+      host: server.host, port: server.port || 22,
+      username: server.username, privateKey: server.private_key,
+      readyTimeout: 10000
+    });
+    const cmd = recursive ? `rm -rf "${filePath}"` : `rm "${filePath}" 2>/dev/null || rmdir "${filePath}"`;
+    const r = await ssh.execCommand(cmd);
+    ssh.dispose();
+    if (r.code !== 0) return res.status(400).json({ error: r.stderr || 'Delete failed' });
+    res.json({ success: true, path: filePath });
+  } catch (err) {
+    if (ssh.isConnected()) ssh.dispose();
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /vps/servers/:id/validate — pre-deployment validation
+router.post('/servers/:id/validate', async (req, res) => {
+  const server = await dbGetServer(req.params.id);
+  if (!server) return res.status(404).json({ error: 'Server not found' });
+  const { requiredEnvVars = [] } = req.body;
+  try {
+    const { validateVpsDeployment } = await import('../../../../services/deployment/validator.js');
+    const result = await validateVpsDeployment(server, requiredEnvVars);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Legacy in-memory session compat ───────────────────────────────────────────
 
 router.post('/session', async (req, res) => {

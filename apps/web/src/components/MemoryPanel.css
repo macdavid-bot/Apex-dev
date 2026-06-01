@@ -1,0 +1,85 @@
+.mem-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.mem-search { flex: 1; min-width: 160px; }
+.mem-cat-select { width: 160px; }
+
+.mem-add-form {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.mem-add-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 160px;
+  gap: 14px;
+}
+.mem-add-row > div { display: flex; flex-direction: column; }
+
+.mem-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #8b949e;
+}
+.mem-empty span { font-size: 15px; display: block; margin-bottom: 6px; color: #e6edf3; }
+.mem-empty p    { font-size: 13px; }
+
+.mem-group { margin-bottom: 24px; }
+.mem-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.mem-cat-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 12px;
+  text-transform: capitalize;
+}
+.mem-count {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.mem-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.mem-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.mem-key {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+.mem-scope {
+  font-size: 11px;
+  color: #58a6ff;
+  background: #1c2d4a;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.mem-value {
+  font-size: 13px;
+  color: #c9d1d9;
+  margin: 0 0 6px;
+  line-height: 1.5;
+}
+.mem-date { font-size: 11px; color: #8b949e; }

@@ -1,0 +1,97 @@
+.rb-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.rb-create-form {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rb-result {
+  background: #0d1117;
+  border: 1px solid #238636;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.rb-result-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #e6edf3;
+  margin-bottom: 12px;
+}
+.rb-result-icon { color: #56d364; font-size: 16px; }
+.rb-result-steps { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.rb-result-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #8b949e;
+}
+.rb-result-step.done { color: #56d364; }
+.rb-result-step.error { color: #f85149; }
+.rb-step-err { color: #f85149; font-size: 12px; }
+
+.rb-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #8b949e;
+}
+.rb-empty span { font-size: 15px; display: block; margin-bottom: 6px; color: #e6edf3; }
+.rb-empty p    { font-size: 13px; }
+
+.rb-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+.rb-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.rb-type-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  margin-right: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.rb-card-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+.rb-card-btns { display: flex; gap: 8px; align-items: center; }
+.rb-restore-btn { padding: 5px 14px; font-size: 13px; }
+
+.rb-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: #8b949e;
+}
+.rb-card-meta code {
+  font-family: 'Fira Code', monospace;
+  font-size: 11px;
+  color: #79c0ff;
+}

@@ -1,53 +1,95 @@
+// Memory routes — legacy in-memory + new persistent global agent memory + project memory.
 import express from 'express';
 import { saveRepositoryMetadata, getRepositoryMetadata } from '../../../../services/memory/repository-cache.js';
-import { rememberSymbol, recallSymbol } from '../../../../services/memory/symbol-memory.js';
-import { trackChange, getTrackedChanges } from '../../../../services/memory/change-tracker.js';
-import { storeContext, getContexts } from '../../../../services/memory/context-store.js';
+import { storeContext, getContexts }   from '../../../../services/memory/context-store.js';
+import { remember, recall, forget, CATEGORIES } from '../../../../services/memory/agent-memory.js';
+import { getMemory, addFact, updateSummary } from '../../../../services/memory/project-memory.js';
 
 const router = express.Router();
 
+// ── Legacy in-memory routes (kept for backwards compat) ────────────────────────
 router.post('/repository', (req, res) => {
-  const result = saveRepositoryMetadata(req.body.repo, req.body.metadata);
-
-  res.json(result);
+  res.json(saveRepositoryMetadata(req.body.repo, req.body.metadata));
 });
-
 router.get('/repository/:repo', (req, res) => {
-  const result = getRepositoryMetadata(req.params.repo);
-
-  res.json(result);
+  res.json(getRepositoryMetadata(req.params.repo));
 });
-
-router.post('/symbol', (req, res) => {
-  const result = rememberSymbol(req.body.symbol, req.body.location);
-
-  res.json(result);
-});
-
-router.get('/symbol/:symbol', (req, res) => {
-  const result = recallSymbol(req.params.symbol);
-
-  res.json(result);
-});
-
-router.post('/change', (req, res) => {
-  const result = trackChange(req.body.file, req.body.type);
-
-  res.json({ tracked: true, total: result });
-});
-
-router.get('/changes', (req, res) => {
-  res.json(getTrackedChanges());
-});
-
 router.post('/context', (req, res) => {
-  const result = storeContext(req.body.context);
-
-  res.json({ stored: true, total: result });
+  res.json({ stored: true, total: storeContext(req.body.context) });
 });
-
 router.get('/contexts', (req, res) => {
   res.json(getContexts());
+});
+
+// ── Global agent memory (persistent) ──────────────────────────────────────────
+
+// GET /memory/agent?query=...&category=...&repo=...&limit=...
+router.get('/agent', async (req, res) => {
+  try {
+    const { query: q, category, repo, limit = 100 } = req.query;
+    const entries = await recall({ query: q, category, repoName: repo, limit: Number(limit) });
+    res.json({ entries, categories: CATEGORIES });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /memory/agent — store a new memory
+router.post('/agent', async (req, res) => {
+  try {
+    const { category = 'fact', key, value, tags = [], repoName = '' } = req.body;
+    if (!key || !value) return res.status(400).json({ error: 'key and value are required' });
+    const entry = await remember({ category, key, value, tags, repoName });
+    res.json(entry);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /memory/agent/:id — forget a memory
+router.delete('/agent/:id', async (req, res) => {
+  try {
+    await forget(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/categories', (req, res) => {
+  res.json(CATEGORIES);
+});
+
+// ── Per-project memory ────────────────────────────────────────────────────────
+
+router.get('/project/:owner/:repo', async (req, res) => {
+  try {
+    res.json(await getMemory(req.params.owner, req.params.repo));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/project/:owner/:repo/fact', async (req, res) => {
+  try {
+    const { fact } = req.body;
+    if (!fact) return res.status(400).json({ error: 'fact is required' });
+    const facts = await addFact(req.params.owner, req.params.repo, fact);
+    res.json({ success: true, totalFacts: facts.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/project/:owner/:repo/summary', async (req, res) => {
+  try {
+    const { summary } = req.body;
+    if (!summary) return res.status(400).json({ error: 'summary is required' });
+    await updateSummary(req.params.owner, req.params.repo, summary);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

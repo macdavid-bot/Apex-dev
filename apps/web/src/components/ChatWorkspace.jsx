@@ -98,7 +98,7 @@ function inlineFormat(text) {
   return parts.length ? parts : text;
 }
 
-// ── Live Activity Log (Replit-style step feed) ─────────────────────────────────
+// ── Live Activity Log (step feed) ─────────────────────────────────────────────
 
 const STEP_ICONS = {
   read_file:           '📂',

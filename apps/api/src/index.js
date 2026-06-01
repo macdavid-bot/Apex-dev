@@ -35,6 +35,8 @@ import githubRoutes         from './routes/github.js';
 import vpsRoutes            from './routes/vps.js';
 import filesRoutes          from './routes/files.js';
 import jobsRoutes           from './routes/jobs.js';
+import reposRoutes          from './routes/repos.js';
+import rollbackRoutes       from './routes/rollback.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app    = express();
@@ -113,6 +115,8 @@ app.use('/github',            requireAuth, githubRoutes);
 app.use('/vps',               requireAuth, vpsRoutes);
 app.use('/files',             requireAuth, filesRoutes);
 app.use('/jobs',              jobsRoutes);                // auth applied per-route inside
+app.use('/repos',             requireAuth, reposRoutes);
+app.use('/rollback',          requireAuth, rollbackRoutes);
 
 // ── WebSocket servers ─────────────────────────────────────────────────────────
 const termWss = new WebSocketServer({ noServer: true });

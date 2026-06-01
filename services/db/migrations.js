@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS ssh_sessions (
   created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Per-project memory (facts + summary)
+-- Per-project memory (facts + summary, keyed by owner/repo)
 CREATE TABLE IF NOT EXISTS project_memory (
   repo_key    TEXT PRIMARY KEY,
   summary     TEXT DEFAULT '',
@@ -112,6 +112,68 @@ CREATE TABLE IF NOT EXISTS activity_log (
 );
 CREATE INDEX IF NOT EXISTS activity_log_created_idx  ON activity_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS activity_log_category_idx ON activity_log(category, action);
+
+-- ── NEW: Repository Registry ──────────────────────────────────────────────────
+-- Named repo registry so AI resolves "Manuskripta" → github.com/owner/repo
+CREATE TABLE IF NOT EXISTS repositories (
+  id               TEXT PRIMARY KEY,
+  name             TEXT NOT NULL UNIQUE,   -- slug: "manuskripta", "apex-dev"
+  label            TEXT NOT NULL,           -- display: "Manuskripta", "Apex Dev"
+  github_url       TEXT DEFAULT '',
+  owner            TEXT DEFAULT '',
+  repo             TEXT DEFAULT '',
+  branch           TEXT DEFAULT 'main',
+  purpose          TEXT DEFAULT '',         -- one-line project description
+  clone_path       TEXT DEFAULT '',         -- local/VPS clone path
+  deploy_server_id TEXT DEFAULT '',         -- default VPS server id for deployment
+  env_info         TEXT DEFAULT '',         -- notes about env / required vars
+  last_indexed_at  TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS repositories_name_idx ON repositories(name);
+
+-- ── NEW: Global Agent Memory ──────────────────────────────────────────────────
+-- Structured long-term memory not tied to a single conversation
+CREATE TABLE IF NOT EXISTS agent_memory (
+  id         TEXT PRIMARY KEY,
+  category   TEXT NOT NULL DEFAULT 'fact',
+  key        TEXT NOT NULL,
+  value      TEXT NOT NULL,
+  tags_json  JSONB DEFAULT '[]',
+  repo_name  TEXT DEFAULT '',    -- optional: scoped to a repo name
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS agent_memory_category_idx ON agent_memory(category);
+CREATE INDEX IF NOT EXISTS agent_memory_repo_idx     ON agent_memory(repo_name);
+
+-- ── NEW: Rollback Checkpoints ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS rollback_checkpoints (
+  id             TEXT PRIMARY KEY,
+  label          TEXT NOT NULL,
+  type           TEXT NOT NULL DEFAULT 'deployment',
+  server_id      TEXT DEFAULT '',
+  repo_name      TEXT DEFAULT '',
+  git_sha        TEXT DEFAULT '',
+  pm2_state_json JSONB DEFAULT '[]',
+  metadata_json  JSONB DEFAULT '{}',
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS rollback_checkpoints_created_idx ON rollback_checkpoints(created_at DESC);
+
+-- ── NEW: Deployment Resource Limits ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS deployment_resources (
+  id           TEXT PRIMARY KEY,
+  server_id    TEXT NOT NULL,
+  service_name TEXT NOT NULL,
+  ram_limit    TEXT DEFAULT '512MB',
+  cpu_limit    INT  DEFAULT 100,
+  max_restarts INT  DEFAULT 10,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(server_id, service_name)
+);
 `;
 
 // Safe column additions for existing deployments (idempotent)

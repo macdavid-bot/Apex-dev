@@ -1,376 +1,296 @@
 # Apex Dev
 
-Apex Dev is a private autonomous engineering and VPS operations platform designed to:
-- understand repositories intelligently,
-- orchestrate engineering workflows,
-- validate and repair codebases,
-- manage deployments,
-- operate VPS infrastructure,
-- and coordinate real-world engineering operations autonomously.
+A self-hosted AI engineering platform. Chat with an autonomous AI agent that reads, edits, tests, and deploys code — across GitHub repos and your own VPS servers.
 
-Apex Dev combines:
-- autonomous AI engineering (DeepSeek agent loop with real shell/git/file actions),
-- repository intelligence,
-- deployment orchestration,
-- persistent memory,
-- realtime terminal systems,
-- conversational engineering workspaces,
-- SSH-aware execution,
-- and workflow automation
-into a lightweight but highly capable engineering operating environment.
+## Architecture
 
----
-
-# Core Capabilities
-
-## Conversational Engineering Workspace
-- Chat-first engineering operations with a real DeepSeek agent loop
-- Tool-assisted workflows (read_file, edit_file, create_branch, run_local, run_vps, git_diff)
-- Persistent engineering conversations
-- SSH-bound chat sessions
-- Context-aware engineering execution
-- Workflow-aware conversations
-
-## Autonomous Engineering Runtime
-- AI-powered engineering workflows (up to 8 action iterations per prompt)
-- Approval-aware execution with approve/reject endpoints
-- Workflow lifecycle tracking (in-memory store)
-- AI-powered repair systems (failure analysis, root cause, suggestions via DeepSeek)
-- Validation-first operations (real shell-based checks)
-- Deployment coordination
-
-## Repository Intelligence
-- Targeted repository search
-- Selective rescanning
-- Symbol memory
-- Context assembly
-- Repository indexing
-- Persistent architecture memory
-
-## Interactive Engineering Environment
-- Interactive dashboard
-- Realtime terminal architecture
-- Workflow visualization
-- Approval management
-- Deployment monitoring (PM2 jlist + local health probes + VPS SSH probe)
-- Validation diagnostics
-
-## VPS Operations
-- Docker Compose orchestration
-- PM2 runtime management
-- PostgreSQL runtime foundations
-- Environment validation
-- Deployment scripting
-- Infrastructure automation
-
-## Security & Stability
-- In-process rate limiting (300 req/min per IP)
-- Environment variable validation
-- SSH-aware session validation
-- Command sanitization
-- Structured logging
-- 10 MB request body limit
-
----
-
-# Runtime Architecture
-
-## Backend Stack
-- Express API (`apps/api`)
-- Real shell executor via `child_process`
-- Workflow execution engine with in-memory store
-- AI repair orchestration (DeepSeek)
-- Real validation runtime (shell-based)
-- Real deployment runtime (PM2 + Docker Compose)
-- SSH session runtime (node-ssh)
-
-## Frontend Stack
-- React + Vite (`apps/web`)
-- React Query
-- Zustand
-- Chat workspace UI with action step pills
-- SSH key management UI
-- Approval UI (approve/reject)
-- Workflow timelines
-- Deployment dashboard
-
-## Intelligence Layer
-- DeepSeek runtime integration (agent loop, 8-iteration max)
-- `apex-action` JSON block parsing and execution
-- Context assembly
-- Repository intelligence
-- AI-powered repair intelligence
-- Workflow planning
-- Persistent memory systems
-- SSH-aware workflow coordination
-
----
-
-# Deployment
-
-## Development
-```bash
-pnpm install
-pnpm dev                # starts api on :3000 + web on :5000
 ```
-
-## Docker (production)
-```bash
-docker build -t apex-dev .
-docker run -p 3000:3000 \
-  -e DEEPSEEK_API_KEY=sk-... \
-  -e GITHUB_TOKEN=ghp_... \
-  apex-dev
-```
-
-## PM2 (VPS)
-```bash
-pnpm --filter @apex/web build
-pm2 start ecosystem.config.cjs
-pm2 save
-```
-
----
-
-# Comprehensive File Tree
-
-```txt
 apex-dev/
-│
 ├── apps/
-│   ├── api/
+│   ├── api/          Express.js backend (port 3000)
 │   │   └── src/
-│   │       ├── index.js                    # Express entry — CORS, rate limit, routes
-│   │       ├── routes/
-│   │       │   ├── approval.js             # GET / POST / POST /:id/approve|reject
-│   │       │   ├── context.js
-│   │       │   ├── deployment.js           # GET /list, POST /docker|pm2|package|health
-│   │       │   ├── files.js                # read/write/list file operations
-│   │       │   ├── git.js                  # clone/branch/checkout/commit/diff/push
-│   │       │   ├── github.js
-│   │       │   ├── memory.js
-│   │       │   ├── orchestrator.js         # AI agent loop — parses apex-action blocks
-│   │       │   ├── repair.js               # analyze/root-cause/suggestions/recover
-│   │       │   ├── repository.js
-│   │       │   ├── shell.js                # POST /execute (with cwd support)
-│   │       │   ├── system.js
-│   │       │   ├── terminal.js
-│   │       │   ├── validation-engine.js
-│   │       │   ├── validation.js           # POST /run + GET /run
-│   │       │   ├── vps.js                  # SSH session management
-│   │       │   ├── workflow.js             # GET / list, POST /, PATCH /:id
-│   │       │   └── workspace.js
-│   │       │
-│   │       └── socket/
-│   │           └── terminal-stream.js
-│   │
-│   └── web/
+│   │       ├── routes/       REST API endpoints
+│   │       └── ws/           WebSocket handlers (terminal, VPS SSH)
+│   └── web/          React + Vite frontend (port 5000)
 │       └── src/
-│           ├── api/
-│           │   └── workflows.ts
-│           │
-│           ├── components/
-│           │   ├── ApprovalCard.jsx
-│           │   ├── ApprovalCard.css
-│           │   ├── ApprovalPanel.jsx
-│           │   ├── ChatToolbar.jsx
-│           │   ├── ChatWorkspace.jsx       # renders markdown + action step pills
-│           │   ├── DeploymentPanel.jsx     # calls GET /deployment/list
-│           │   ├── Panel.css
-│           │   ├── RepositoryExplorer.jsx
-│           │   ├── SSHKeyManager.jsx
-│           │   ├── SSHSelector.jsx
-│           │   ├── TerminalPanel.jsx
-│           │   ├── ValidationPanel.jsx     # calls POST /validation/run
-│           │   └── WorkflowTimeline.jsx    # calls GET /workflow
-│           │
-│           ├── lib/
-│           │   └── query-client.ts
-│           │
-│           ├── pages/
-│           │   └── Dashboard.jsx           # wires actions from orchestrator → messages
-│           │
-│           └── store/
-│               └── workflow-store.ts
-│
-├── scripts/
-│   ├── deploy.sh
-│   └── restart.sh
-│
-├── services/
-│   ├── ai/
-│   │   ├── client.js
-│   │   └── deepseek-runtime.js            # runDeepSeekChat — used by orchestrator + repair
-│   │
-│   ├── approval/
-│   │   └── runtime.js                     # createApproval / approveAction / rejectAction
-│   │
-│   ├── auth/
-│   │   ├── jwt.js
-│   │   └── password.js
-│   │
-│   ├── context/
-│   │   └── assembler.js
-│   │
-│   ├── database/
-│   │   ├── drizzle-client.js
-│   │   ├── memory-store.js
-│   │   └── schema.js
-│   │
-│   ├── deployment/
-│   │   ├── docker.js                      # docker compose up/stop/status
-│   │   ├── health.js                      # HTTP health probe
-│   │   ├── monitor.js                     # PM2 jlist + local port probe + VPS ping
-│   │   ├── packages.js                    # pnpm add / pnpm install
-│   │   ├── pm2.js                         # pm2 restart/start/save
-│   │   └── runtime.js
-│   │
-│   ├── diagnostics/
-│   │   └── parser.js
-│   │
-│   ├── environment/
-│   │   ├── runtime.js
-│   │   └── validator.js
-│   │
-│   ├── file/
-│   │   └── editor.js                      # surgical old_str/new_str patch
-│   │
-│   ├── git/
-│   │   ├── branch.js                      # createBranch / checkoutBranch / listBranches
-│   │   ├── clone.js
-│   │   ├── commit.js                      # createCommit / getStatus
-│   │   ├── diff.js                        # generateDiff / diffUnstaged / pushBranch
-│   │   └── runtime.js
-│   │
-│   ├── memory/
-│   │   ├── change-tracker.js
-│   │   ├── context-store.js
-│   │   ├── repository-cache.js
-│   │   └── symbol-memory.js
-│   │
-│   ├── monitoring/
-│   │   └── logger.js
-│   │
-│   ├── orchestrator/
-│   │   └── runtime.js
-│   │
-│   ├── repair/
-│   │   ├── failure-analysis.js            # AI-powered — calls DeepSeek
-│   │   ├── recovery.js                    # AI-powered — calls DeepSeek
-│   │   ├── root-cause.js                  # AI-powered — calls DeepSeek
-│   │   ├── runtime-loop.js
-│   │   └── suggestions.js                 # AI-powered — calls DeepSeek
-│   │
-│   ├── repository/
-│   │   ├── context-loader.js
-│   │   ├── indexer.js
-│   │   ├── runtime-search.js
-│   │   ├── search.js
-│   │   └── symbols.js
-│   │
-│   ├── security/
-│   │   ├── rate-limit.js
-│   │   └── sanitizer.js
-│   │
-│   ├── shell/
-│   │   ├── assistant.js
-│   │   ├── history.js
-│   │   ├── index.js                       # runShellCommand — main shell executor
-│   │   ├── runtime.js                     # executeCommand (child_process spawn)
-│   │   ├── session.js
-│   │   └── stream.js
-│   │
-│   ├── ssh/
-│   │   └── session-runtime.js
-│   │
-│   ├── validation/
-│   │   ├── build.js
-│   │   ├── install.js
-│   │   ├── lint.js
-│   │   └── runtime.js
-│   │
-│   ├── vps/
-│   │   └── sessions.js                    # shared Map of active VPS SSH sessions
-│   │
-│   └── workflow/
-│       ├── executor.js
-│       ├── lifecycle.js
-│       ├── orchestrator.js
-│       ├── pipeline.js
-│       └── store.js                       # addWorkflow / updateWorkflow / getWorkflows
-│
-├── Dockerfile                             # multi-stage: deps → builder → production
-├── docker-compose.yml
-├── ecosystem.config.cjs                   # PM2 config (cjs — avoids ESM conflict)
-├── package.json                           # "type":"module", pnpm workspaces
-├── pnpm-workspace.yaml
-├── tsconfig.json
-├── .env.example
-└── README.md
-
-# New files (added since initial tree)
-
-apps/web/public/favicon.png              # App icon (custom brand mark)
-apps/web/src/pages/Login.jsx             # Login page (single-user auth gate)
-apps/web/src/pages/Login.css             # Login styles
-apps/web/src/hooks/useAuth.js            # Auth state hook (JWT localStorage + /auth/me)
-apps/api/src/routes/auth.js              # POST /auth/login, POST /auth/logout, GET /auth/me
-apps/api/src/routes/jobs.js              # GET /jobs, GET /jobs/:id, GET /jobs/:id/stream (SSE)
-apps/api/src/ws/terminal.js              # WebSocket real-time terminal (spawn + ws)
-services/auth/middleware.js              # requireAuth Express middleware (header / query param / cookie)
-services/db/client.js                    # PostgreSQL pool (pg) from DATABASE_URL; dbAvailable() graceful fallback
-services/db/migrations.js               # DDL: conversations, messages, job_queue, workflows, approvals, ssh_sessions, project_memory, code_chunks
-services/queue/store.js                  # DB-backed job queue (enqueue/claim/complete/fail); in-memory fallback
-services/queue/worker.js                 # Background worker: polls job_queue every 2s, runs AI tasks, emits SSE events
-services/memory/project-memory.js        # Per-project memory (facts + summary) in PostgreSQL; in-memory fallback
-services/embeddings/fts.js              # PostgreSQL full-text search (tsvector) for codebase indexing
-services/shell/session-store.js          # Shell sessions: persistent cwd tracking, cd support, 200-entry history
+│           ├── components/   UI panels
+│           ├── pages/        Dashboard
+│           └── hooks/        Auth hook
+└── services/         Shared Node.js services (workspace root)
+    ├── ai/           DeepSeek streaming client
+    ├── auth/         JWT + bcrypt middleware
+    ├── db/           PostgreSQL client + migrations
+    ├── deployment/   PM2, Docker, health, validator
+    ├── embeddings/   Full-text code search
+    ├── file/         Local file read/patch/list
+    ├── git/          Branch creation, diff
+    ├── memory/       Project memory + global agent memory
+    ├── monitoring/   Activity audit log
+    ├── queue/        Job queue + background worker
+    ├── repos/        Repository registry (named repos)
+    ├── rollback/     Checkpoint + restore system
+    ├── shell/        Shell command execution
+    ├── validation/   Code validation runner
+    ├── vps/          VPS session store
+    └── workflow/     Workflow timeline store
 ```
 
----
+## Quick Start
 
-# Environment Variables
+```bash
+# Install all dependencies
+pnpm install
 
-| Variable | Required | Purpose |
+# Copy and configure environment
+cp deploy/.env.production.example .env
+# Edit .env with your credentials
+
+# Start backend (port 3000)
+pnpm --filter @apex/api dev
+
+# Start frontend (port 5000)
+pnpm --filter @apex/web dev
+```
+
+Open http://localhost:5000 and log in with the credentials from `AUTH_USERNAME` / `AUTH_PASSWORD`.
+
+## Environment Variables
+
+| Variable | Required | Description |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | Yes | AI agent loop and all AI features |
-| `DEEPSEEK_MODEL` | No | Model name (default: `deepseek-chat`) |
-| `GITHUB_TOKEN` | Yes | GitHub API — repo read/write/search |
-| `DATABASE_URL` | Recommended | VPS PostgreSQL connection string — enables persistence |
-| `DB_SSL` | No | Set `true` if VPS requires SSL |
-| `AUTH_USERNAME` | No | Login username (default: `mac_david`) |
-| `AUTH_PASSWORD` | No | Login password (default: `@Davidluiz4life`) |
-| `JWT_SECRET` | Recommended | JWT signing secret — use a long random string in production |
-| `PORT` | No | API port (default: 3000) |
-| `HOST` | No | API bind host (default: 0.0.0.0) |
-| `NODE_ENV` | No | `production` enables strict CORS |
-| `ALLOWED_ORIGINS` | Prod | Comma-separated allowed CORS origins |
+| `AUTH_USERNAME` | ✅ | Login username |
+| `AUTH_PASSWORD` | ✅ | Login password |
+| `JWT_SECRET` | ✅ | JWT signing secret |
+| `DEEPSEEK_API_KEY` | ✅ | DeepSeek API key |
+| `GITHUB_TOKEN` | ✅ | GitHub PAT (repo + code search scopes) |
+| `DATABASE_URL` | Recommended | PostgreSQL connection string |
+| `PORT` | — | API port (default: 3000) |
+| `NODE_ENV` | — | Set to `production` in prod |
+| `ALLOWED_ORIGINS` | Prod | Comma-separated CORS origins |
 
----
+## AI Actions
 
-# Deployment Philosophy
+The orchestrator agent runs an autonomous loop with these actions:
 
-Apex Dev is designed so that:
-- Most engineering work is completed before VPS deployment.
-- Deployment day focuses primarily on:
-  - infrastructure installation,
-  - environment configuration,
-  - service startup,
-  - and operational verification.
+| Action | Description |
+|---|---|
+| `search_repo` | GitHub code search or local grep |
+| `read_file` | Read from GitHub or local filesystem |
+| `edit_file` | Surgical patch (old_str → new_str) with auto-commit |
+| `create_branch` | Create a feature branch |
+| `run_tests` | Clone, install, and run the test suite |
+| `create_pull_request` | Open a PR (only after tests pass) |
+| `git_diff` | Compare branches |
+| `list_files` | Browse directory tree |
+| `run_local` | Run shell commands locally |
+| `run_vps` | Execute commands on a VPS via SSH |
+| `deploy_to_vps` | Full deploy pipeline: pull → install → restart |
+| `set_vps_env` | Write env vars to a VPS .env file |
+| `recall_memory` | Recall per-project facts |
+| `add_memory` | Store per-project facts |
+| `remember` | Store global cross-project memory |
+| `recall` | Search global memory by query/category |
+| `forget` | Remove a global memory entry |
+| `list_repos` | List registered repository names |
+| `switch_repo` | Switch active context to a named repo |
+| `create_checkpoint` | Snapshot git SHA + PM2 state before risky ops |
+| `rollback` | Restore to a previous checkpoint |
+| `list_checkpoints` | List recent snapshots |
+| `validate_deployment` | Pre-flight check before deploying |
+| `browse_vps` | List files on a VPS server |
+| `read_vps_file` | Read file content from VPS |
+| `write_vps_file` | Write file content to VPS |
+| `self_inspect` | Read Apex Dev's own source files |
 
-This dramatically reduces deployment complexity and operational chaos.
+## Dashboard Tabs
 
----
+| Tab | Description |
+|---|---|
+| Chat | AI assistant — send engineering tasks |
+| Workflows | Timeline of AI task activity |
+| Approvals | Human-in-the-loop approval queue |
+| Repos | Repository registry — register named repos |
+| File Browser | GitHub repo file browser + editor |
+| Terminal | Local interactive shell (xterm.js) |
+| Validation | Code lint/build checks |
+| Deployment | PM2 + Docker service manager |
+| VPS Servers | Register and manage VPS servers |
+| VPS Files | Browse and edit files on VPS over SSH |
+| Memory | View and manage global agent memory |
+| Rollback | Deployment checkpoints + one-click restore |
+| SSH Keys | SSH key management |
 
-# Vision
+## Features
 
-Apex Dev is evolving into a fully autonomous conversational engineering operating environment capable of:
-- engineering repositories,
-- orchestrating deployments,
-- validating infrastructure,
-- repairing failures,
-- operating VPS systems,
-- coordinating SSH-aware workflows,
-- and managing real-world engineering operations through conversational interfaces with minimal manual intervention.
+### Repository Registry
+Register named repos so the AI resolves them by name:
+- "Work on Manuskripta" → looks up `owner/repo` from registry
+- Each entry: GitHub URL, default VPS server, clone path, env notes, purpose
+- Injected into every system prompt automatically
 
-The long-term objective is to create a highly efficient private engineering intelligence platform optimized for autonomous software development, infrastructure orchestration, and conversational engineering operations.
+### Global Agent Memory
+Structured long-term memory across all repos and conversations:
+- Categories: `architecture`, `instruction`, `infrastructure`, `deployment`, `preference`, `fact`
+- Optionally scoped to a specific repo
+- Persisted in PostgreSQL; AI can `remember`, `recall`, `forget`
+
+### Rollback & Checkpoints
+Snapshot system state before risky operations:
+- Captures: git HEAD SHA, PM2 process state
+- Auto-triggered before deployments
+- Manual creation from UI or by the AI
+- One-click restore in the Rollback tab
+
+### VPS File Browser
+Browse, view, and edit files on VPS servers over SSH:
+- Directory navigation with breadcrumbs
+- In-browser file editor with save
+- File deletion with safety guard on root paths
+
+### Deployment Safety Validation
+Pre-flight check before every deploy:
+- Verifies deploy directory exists
+- Checks required env vars are present
+- Confirms PM2 and Node are available
+- Checks free disk space
+- Verifiable via the `validate_deployment` AI action
+
+### Streaming AI Jobs
+- POST to `/orchestrator/chat` enqueues background job
+- SSE stream at `/jobs/:id/stream` delivers live token/step/progress events
+- Per-step progress displayed in real time
+
+### SSH Terminal
+- Local shell via `/ws/terminal` (xterm.js)
+- SSH into any registered VPS via `/ws/vps/:id`
+
+### Security
+- bcrypt password hashing
+- JWT auth (httpOnly cookie + Bearer header)
+- All routes protected with `requireAuth`
+- Rate limiting: 300 req/min per IP
+- Full audit log in `activity_log` table
+
+## Production Deployment
+
+### Setup on VPS
+
+```bash
+# Install Node 20 + pnpm + PM2
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt-get install -y nodejs nginx
+npm install -g pnpm pm2
+
+# Clone and install
+git clone https://github.com/YOUR_USER/apex-dev.git /opt/apex-dev
+cd /opt/apex-dev
+pnpm install
+
+# Configure
+cp deploy/.env.production.example .env
+nano .env  # fill in credentials
+
+# Build frontend
+pnpm --filter @apex/web build
+
+# Configure nginx
+cp deploy/nginx.conf /etc/nginx/sites-available/apex-dev
+# edit server_name
+ln -s /etc/nginx/sites-available/apex-dev /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
+
+# Start with PM2
+cp deploy/ecosystem.config.cjs /opt/apex-dev/
+pm2 start ecosystem.config.cjs
+pm2 save && pm2 startup
+```
+
+### Updates
+
+```bash
+cd /opt/apex-dev
+git pull
+pnpm install
+pnpm --filter @apex/web build
+pm2 restart apex-dev
+```
+
+## API Reference
+
+### Auth
+| Method | Path | Description |
+|---|---|---|
+| POST | `/auth/login` | Get JWT |
+| POST | `/auth/logout` | Clear session |
+| GET | `/auth/me` | Current user |
+
+### Orchestrator
+| Method | Path | Description |
+|---|---|---|
+| POST | `/orchestrator/chat` | Enqueue AI task |
+| GET | `/orchestrator/conversations` | List conversations |
+| GET | `/orchestrator/conversations/:id` | Load conversation |
+
+### Repository Registry
+| Method | Path | Description |
+|---|---|---|
+| GET | `/repos` | List registered repos |
+| POST | `/repos` | Register a repo |
+| PATCH | `/repos/:name` | Update repo metadata |
+| DELETE | `/repos/:name` | Remove from registry |
+
+### VPS
+| Method | Path | Description |
+|---|---|---|
+| GET | `/vps/servers` | List servers |
+| POST | `/vps/servers` | Add server |
+| PUT | `/vps/servers/:id` | Update server |
+| DELETE | `/vps/servers/:id` | Remove server |
+| POST | `/vps/servers/:id/test` | Test SSH |
+| POST | `/vps/servers/:id/exec` | Run command |
+| POST | `/vps/servers/:id/set-env` | Write env var |
+| GET | `/vps/servers/:id/deploy` | Deploy (SSE) |
+| GET | `/vps/servers/:id/fs/browse` | Browse directory |
+| GET | `/vps/servers/:id/fs/read` | Read file |
+| POST | `/vps/servers/:id/fs/write` | Write file |
+| POST | `/vps/servers/:id/fs/delete` | Delete file |
+| POST | `/vps/servers/:id/validate` | Pre-deploy validation |
+
+### Memory
+| Method | Path | Description |
+|---|---|---|
+| GET | `/memory/agent` | Search global memory |
+| POST | `/memory/agent` | Store memory |
+| DELETE | `/memory/agent/:id` | Forget memory |
+
+### Rollback
+| Method | Path | Description |
+|---|---|---|
+| GET | `/rollback/checkpoints` | List checkpoints |
+| POST | `/rollback/checkpoints` | Create checkpoint |
+| POST | `/rollback/checkpoints/:id/restore` | Restore |
+| DELETE | `/rollback/checkpoints/:id` | Delete |
+
+## Database Schema
+
+Auto-migrated tables:
+
+| Table | Purpose |
+|---|---|
+| `conversations` | AI chat sessions |
+| `messages` | Chat messages |
+| `job_queue` | Background AI tasks |
+| `workflows` | Task timeline |
+| `approvals` | Human-in-the-loop |
+| `ssh_sessions` | VPS server credentials |
+| `project_memory` | Per-repo AI facts |
+| `code_chunks` | FTS search index |
+| `activity_log` | Audit trail |
+| `repositories` | Named repo registry |
+| `agent_memory` | Global structured memory |
+| `rollback_checkpoints` | Deployment snapshots |
+| `deployment_resources` | RAM/CPU limits per service |
+
+## License
+
+MIT

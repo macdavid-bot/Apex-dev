@@ -7,9 +7,8 @@ import './Panel.css';
 import './TerminalPanel.css';
 import { getToken, authHeaders } from '../hooks/useAuth';
 
-// Build a WebSocket URL that works in any environment:
-// - Replit dev: proxied through Vite at same host/port
-// - VPS behind nginx: same host, ws(s):// based on https
+// Build a WebSocket URL that works in any environment
+// (proxied dev server or VPS behind nginx — same host, ws(s):// based on https)
 function buildWsUrl(path) {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${window.location.host}${path}`;
@@ -92,7 +91,7 @@ export default function TerminalPanel() {
 
     wsRef.current?.close();
 
-    // Use relative host — works on Replit dev (via Vite proxy) and VPS (via nginx)
+    // Use relative host — works in dev (via Vite proxy) and production (via nginx)
     const wsUrl = buildWsUrl(`/ws/terminal?token=${encodeURIComponent(token)}&sessionId=${sessionId.current}`);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;

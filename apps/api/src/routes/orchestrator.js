@@ -7,6 +7,10 @@ import { addWorkflow, updateWorkflow } from '../../../../services/workflow/store
 import { enqueue } from '../../../../services/queue/store.js';
 import { registerJobRunner } from '../../../../services/queue/worker.js';
 import { formatMemoryForPrompt, addFact } from '../../../../services/memory/project-memory.js';
+import { formatMemoryForPrompt as formatAgentMemory, remember, recall, forget } from '../../../../services/memory/agent-memory.js';
+import { listRepos, getRepo, formatReposForPrompt } from '../../../../services/repos/registry.js';
+import { createCheckpoint, listCheckpoints, restoreCheckpoint } from '../../../../services/rollback/checkpoints.js';
+import { validateVpsDeployment } from '../../../../services/deployment/validator.js';
 import { searchCode } from '../../../../services/embeddings/fts.js';
 import { requireAuth } from '../../../../services/auth/middleware.js';
 import { query, queryOne, dbAvailable } from '../../../../services/db/client.js';
@@ -127,6 +131,72 @@ Multiple action blocks per response are fine — they execute in order.
 {"type": "add_memory", "fact": "The API uses JWT auth with 30-day expiry"}
 \`\`\`
 
+**remember** — Store a global cross-project memory (persists across all repos and conversations).
+\`\`\`apex-action
+{"type": "remember", "category": "infrastructure", "key": "Production VPS", "value": "Ubuntu 22.04 on DigitalOcean, 4GB RAM, PM2 process manager", "tags": ["vps", "prod"]}
+\`\`\`
+Categories: architecture, instruction, infrastructure, deployment, preference, fact
+
+**recall** — Search global agent memory for relevant context.
+\`\`\`apex-action
+{"type": "recall", "query": "deployment process", "category": "deployment"}
+\`\`\`
+
+**forget** — Remove a global memory entry by ID.
+\`\`\`apex-action
+{"type": "forget", "id": "mem-1234567890-1"}
+\`\`\`
+
+**list_repos** — List all registered repositories in the registry.
+\`\`\`apex-action
+{"type": "list_repos"}
+\`\`\`
+
+**switch_repo** — Switch active context to a registered repository by name or label.
+\`\`\`apex-action
+{"type": "switch_repo", "name": "manuskripta"}
+\`\`\`
+
+**create_checkpoint** — Snapshot current state before a risky operation (deployment, self-edit, config change).
+\`\`\`apex-action
+{"type": "create_checkpoint", "label": "Before deploying v2.1", "repo_name": "manuskripta"}
+\`\`\`
+
+**rollback** — Restore system to a previous checkpoint.
+\`\`\`apex-action
+{"type": "rollback", "checkpoint_id": "cp-1234567890-abc1"}
+\`\`\`
+
+**list_checkpoints** — List recent rollback checkpoints.
+\`\`\`apex-action
+{"type": "list_checkpoints"}
+\`\`\`
+
+**validate_deployment** — Pre-flight check before deploying: env vars, disk, PM2, node, dependencies.
+\`\`\`apex-action
+{"type": "validate_deployment", "server_id": "abc123", "required_env": ["DATABASE_URL", "JWT_SECRET"]}
+\`\`\`
+
+**browse_vps** — List files/directories on a VPS server.
+\`\`\`apex-action
+{"type": "browse_vps", "server_id": "abc123", "path": "/home/user/app"}
+\`\`\`
+
+**read_vps_file** — Read the contents of a file on a VPS server.
+\`\`\`apex-action
+{"type": "read_vps_file", "server_id": "abc123", "path": "/home/user/app/.env"}
+\`\`\`
+
+**write_vps_file** — Write content to a file on a VPS server.
+\`\`\`apex-action
+{"type": "write_vps_file", "server_id": "abc123", "path": "/home/user/app/config.json", "content": "{\"port\": 3000}"}
+\`\`\`
+
+**self_inspect** — Read Apex Dev's own source files to understand or debug the platform itself.
+\`\`\`apex-action
+{"type": "self_inspect", "path": "apps/api/src/routes/orchestrator.js"}
+\`\`\`
+
 ## Workflow Rules
 1. **Search before reading**: Always start with search_repo or search_code_fts to find relevant files.
 2. **Branch first**: Create a feature branch before any edits. Never commit directly to main.
@@ -193,6 +263,19 @@ function stepLabel(action) {
     case 'add_memory':          return `Saving to memory`;
     case 'deploy_to_vps':       return `Deploying to VPS`;
     case 'set_vps_env':         return `Writing \`${action.key}\` to VPS`;
+    case 'remember':            return `Remembering: \`${(action.key || '').slice(0, 40)}\``;
+    case 'recall':              return `Recalling: \`${(action.query || '').slice(0, 40)}\``;
+    case 'forget':              return `Forgetting memory \`${action.id}\``;
+    case 'list_repos':          return `Listing registered repositories`;
+    case 'switch_repo':         return `Switching to repo \`${action.name}\``;
+    case 'create_checkpoint':   return `Creating checkpoint: "${(action.label || '').slice(0, 50)}"`;
+    case 'rollback':            return `Rolling back to checkpoint \`${action.checkpoint_id}\``;
+    case 'list_checkpoints':    return `Listing rollback checkpoints`;
+    case 'validate_deployment': return `Validating server \`${action.server_id}\``;
+    case 'browse_vps':          return `Browsing \`${action.path || '/'}\` on VPS`;
+    case 'read_vps_file':       return `Reading \`${action.path}\` on VPS`;
+    case 'write_vps_file':      return `Writing \`${action.path}\` on VPS`;
+    case 'self_inspect':        return `Inspecting \`${action.path}\``;
     default:                    return action.type;
   }
 }
@@ -237,6 +320,32 @@ function stepDoneLabel(action, result) {
       return result.error ? `Deploy failed: ${result.error}` : `Deployed successfully ✓`;
     case 'set_vps_env':
       return result.error ? `Failed: ${result.error}` : `\`${action.key}\` written to VPS`;
+    case 'remember':
+      return result.error ? `Memory error: ${result.error}` : `Remembered: ${action.key}`;
+    case 'recall':
+      return result.error ? `Recall failed` : `${result.entries?.length || 0} memories found`;
+    case 'forget':
+      return result.error ? `Forget failed` : `Memory removed`;
+    case 'list_repos':
+      return result.error ? `List failed` : `${result.repos?.length || 0} repositories registered`;
+    case 'switch_repo':
+      return result.error ? `Switch failed: ${result.error}` : `Switched to \`${action.name}\``;
+    case 'create_checkpoint':
+      return result.error ? `Checkpoint failed: ${result.error}` : `Checkpoint \`${result.id}\` created`;
+    case 'rollback':
+      return result.error ? `Rollback failed: ${result.error}` : `Restored to checkpoint ✓`;
+    case 'list_checkpoints':
+      return result.error ? `List failed` : `${result.checkpoints?.length || 0} checkpoints found`;
+    case 'validate_deployment':
+      return result.error ? `Validation error: ${result.error}` : (result.success ? `All checks passed ✓` : `${result.checks?.filter(c => !c.success).length} checks failed`);
+    case 'browse_vps':
+      return result.error ? `Browse failed: ${result.error}` : `${result.entries?.length || 0} entries in ${result.path}`;
+    case 'read_vps_file':
+      return result.error ? `Read failed: ${result.error}` : `Read ${action.path} (${result.size || '?'} bytes)`;
+    case 'write_vps_file':
+      return result.error ? `Write failed: ${result.error}` : `Wrote ${result.bytes || '?'} bytes to ${action.path}`;
+    case 'self_inspect':
+      return result.error ? `Inspect failed: ${result.error}` : `Read ${action.path} (${result.lines || '?'} lines)`;
     default:                return action.type;
   }
 }
@@ -623,6 +732,211 @@ async function executeAction(action, conv) {
       return { success: true, totalFacts: facts.length };
     }
 
+    // ── remember ─────────────────────────────────────────────────────────────
+    case 'remember': {
+      const { category = 'fact', key, value, tags = [], repo_name: repoName = '' } = action;
+      if (!key || !value) return { error: 'key and value are required' };
+      const entry = await remember({ category, key, value, tags, repoName });
+      return { success: true, id: entry.id, category, key };
+    }
+
+    // ── recall ────────────────────────────────────────────────────────────────
+    case 'recall': {
+      const { query: q, category, repo_name: repoName, limit = 20 } = action;
+      const entries = await recall({ query: q, category, repoName: repoName || conv.repoCtx?.repo, limit });
+      return { entries, total: entries.length };
+    }
+
+    // ── forget ────────────────────────────────────────────────────────────────
+    case 'forget': {
+      const { id } = action;
+      if (!id) return { error: 'id is required' };
+      await forget(id);
+      return { success: true };
+    }
+
+    // ── list_repos ────────────────────────────────────────────────────────────
+    case 'list_repos': {
+      const repos = await listRepos();
+      return {
+        repos: repos.map(r => ({
+          name: r.name, label: r.label,
+          owner: r.owner, repo: r.repo, branch: r.branch,
+          purpose: r.purpose, deploy_server_id: r.deploy_server_id
+        })),
+        total: repos.length
+      };
+    }
+
+    // ── switch_repo ───────────────────────────────────────────────────────────
+    case 'switch_repo': {
+      const { name } = action;
+      if (!name) return { error: 'name is required' };
+      const repo = await getRepo(name);
+      if (!repo) return { error: `Repository "${name}" not found in registry. Use list_repos to see available repositories.` };
+      if (!repo.owner || !repo.repo) return { error: `Repository "${name}" has no GitHub URL configured. Please update it in the Repository Registry.` };
+
+      const prevRepo = conv.repoCtx?.repo;
+      conv.repoCtx = {
+        owner: repo.owner, repo: repo.repo, branch: repo.branch || 'main',
+        description: repo.purpose, name: repo.name, label: repo.label
+      };
+      // Rebuild system prompt with new repo context
+      conv.messages[0].content = await buildSystemPrompt(conv.repoCtx);
+      conv.testsPassed = false;
+      return {
+        success: true,
+        switched: true,
+        from: prevRepo || null,
+        to: `${repo.owner}/${repo.repo}`,
+        branch: repo.branch || 'main',
+        purpose: repo.purpose || ''
+      };
+    }
+
+    // ── create_checkpoint ─────────────────────────────────────────────────────
+    case 'create_checkpoint': {
+      const { label, type = 'deployment', server_id: serverId = '', repo_name: repoName = '' } = action;
+      const cp = await createCheckpoint({
+        label: label || 'AI checkpoint',
+        type,
+        serverId: serverId || '',
+        repoName: repoName || conv.repoCtx?.repo || ''
+      });
+      return { success: true, id: cp.id, label: cp.label, createdAt: cp.created_at };
+    }
+
+    // ── rollback ──────────────────────────────────────────────────────────────
+    case 'rollback': {
+      const { checkpoint_id: checkpointId } = action;
+      if (!checkpointId) return { error: 'checkpoint_id is required' };
+      try {
+        const result = await restoreCheckpoint(checkpointId);
+        return result;
+      } catch (err) {
+        return { error: err.message };
+      }
+    }
+
+    // ── list_checkpoints ──────────────────────────────────────────────────────
+    case 'list_checkpoints': {
+      const checkpoints = await listCheckpoints(15);
+      return { checkpoints, total: checkpoints.length };
+    }
+
+    // ── validate_deployment ───────────────────────────────────────────────────
+    case 'validate_deployment': {
+      const { server_id: serverId, required_env: requiredEnv = [] } = action;
+      if (!serverId) return { error: 'server_id is required' };
+      const server = await getVpsServer(serverId);
+      if (!server) return { error: `VPS server "${serverId}" not found` };
+      try {
+        const result = await validateVpsDeployment(server, requiredEnv);
+        return result;
+      } catch (err) {
+        return { error: err.message };
+      }
+    }
+
+    // ── browse_vps ────────────────────────────────────────────────────────────
+    case 'browse_vps': {
+      const { server_id: serverId, path: dirPath = '~' } = action;
+      if (!serverId) return { error: 'server_id is required' };
+      const server = await getVpsServer(serverId);
+      if (!server) return { error: `VPS server "${serverId}" not found` };
+
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({
+          host: server.host, port: server.port || 22,
+          username: server.username, privateKey: server.private_key,
+          readyTimeout: 10000
+        });
+        const r = await ssh.execCommand(`ls -la --time-style=iso "${dirPath}" 2>&1`);
+        const pwdR = await ssh.execCommand(`cd "${dirPath}" 2>/dev/null && pwd || echo "${dirPath}"`);
+        ssh.dispose();
+
+        const lines = r.stdout.split('\n').filter(Boolean);
+        const entries = [];
+        for (const line of lines) {
+          if (line.startsWith('total') || !line.trim()) continue;
+          const parts = line.split(/\s+/);
+          if (parts.length < 8) continue;
+          const perms = parts[0]; const name = parts.slice(7).join(' ');
+          if (name === '.' || name === '..') continue;
+          entries.push({ name, type: perms.startsWith('d') ? 'dir' : 'file', permissions: perms });
+        }
+        return { path: pwdR.stdout.trim() || dirPath, entries, count: entries.length };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
+      }
+    }
+
+    // ── read_vps_file ──────────────────────────────────────────────────────────
+    case 'read_vps_file': {
+      const { server_id: serverId, path: filePath } = action;
+      if (!serverId || !filePath) return { error: 'server_id and path are required' };
+      const server = await getVpsServer(serverId);
+      if (!server) return { error: `VPS server "${serverId}" not found` };
+
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({
+          host: server.host, port: server.port || 22,
+          username: server.username, privateKey: server.private_key,
+          readyTimeout: 10000
+        });
+        const sizeR = await ssh.execCommand(`wc -c < "${filePath}" 2>/dev/null || echo 0`);
+        const size = parseInt(sizeR.stdout.trim()) || 0;
+        if (size > 524288) { ssh.dispose(); return { error: `File too large (${Math.round(size/1024)}KB). Max 512KB.` }; }
+        const r = await ssh.execCommand(`cat "${filePath}"`);
+        ssh.dispose();
+        if (r.code !== 0) return { error: r.stderr || 'Cannot read file' };
+        const content = r.stdout;
+        return { path: filePath, content: trim4k(content), lines: content.split('\n').length, size };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
+      }
+    }
+
+    // ── write_vps_file ────────────────────────────────────────────────────────
+    case 'write_vps_file': {
+      const { server_id: serverId, path: filePath, content } = action;
+      if (!serverId || !filePath || content === undefined) return { error: 'server_id, path, and content are required' };
+      const server = await getVpsServer(serverId);
+      if (!server) return { error: `VPS server "${serverId}" not found` };
+
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({
+          host: server.host, port: server.port || 22,
+          username: server.username, privateKey: server.private_key,
+          readyTimeout: 10000
+        });
+        const mkdirR = await ssh.execCommand(`mkdir -p "$(dirname "${filePath}")"`);
+        const r = await ssh.execCommand(`cat > "${filePath}"`, { stdin: content });
+        ssh.dispose();
+        return { success: true, path: filePath, bytes: Buffer.byteLength(content, 'utf8') };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
+      }
+    }
+
+    // ── self_inspect ──────────────────────────────────────────────────────────
+    case 'self_inspect': {
+      const { path: filePath } = action;
+      if (!filePath) return { error: 'path is required' };
+      // Restrict to the workspace root — prevent reading outside /home or ../../ escapes
+      const resolvedPath = filePath.replace(/\.\.\//g, '').replace(/^\//, '');
+      return readLocalFile(resolvedPath);
+    }
+
     default:
       return { error: `Unknown action type: "${action.type}"` };
   }
@@ -660,8 +974,23 @@ function parseActions(text) {
 
 async function buildSystemPrompt(repoCtx) {
   let system = BASE_SYSTEM;
+
+  // Inject registered repo registry
+  try {
+    const reposPrompt = await formatReposForPrompt();
+    if (reposPrompt) system += `\n\n---\n${reposPrompt}\n---`;
+  } catch {}
+
+  // Inject global agent memory
+  try {
+    const agentMemPrompt = await formatAgentMemory(repoCtx?.repo || '');
+    if (agentMemPrompt) system += `\n\n---\n${agentMemPrompt}\n---`;
+  } catch {}
+
   if (repoCtx?.owner) {
-    system += `\n\n---\n**Loaded repo**: ${repoCtx.owner}/${repoCtx.repo} (branch: ${repoCtx.branch || 'main'})\n`;
+    system += `\n\n---\n**Active repo**: ${repoCtx.owner}/${repoCtx.repo} (branch: ${repoCtx.branch || 'main'})`;
+    if (repoCtx.name)        system += `  |  registry name: \`${repoCtx.name}\``;
+    system += '\n';
     if (repoCtx.description) system += `Description: ${repoCtx.description}\n`;
     if (repoCtx.language)    system += `Primary language: ${repoCtx.language}\n`;
     if (repoCtx.files?.length) {
@@ -676,7 +1005,7 @@ async function buildSystemPrompt(repoCtx) {
   try {
     const servers = await listVpsServers();
     if (servers.length > 0) {
-      system += `\n\n---\n**Available VPS Servers** (use these IDs with run_vps, deploy_to_vps, set_vps_env):\n`;
+      system += `\n\n---\n**Available VPS Servers** (use these IDs with run_vps, deploy_to_vps, set_vps_env, browse_vps, etc.):\n`;
       servers.forEach(s => {
         system += `- ID: \`${s.id}\`  |  ${s.label}  |  ${s.username}@${s.host}:${s.port || 22}`;
         if (s.deploy_dir) system += `  |  deploy_dir: ${s.deploy_dir}`;

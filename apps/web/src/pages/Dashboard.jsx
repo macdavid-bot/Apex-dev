@@ -3,11 +3,15 @@ import ChatWorkspace from '../components/ChatWorkspace';
 import ApprovalPanel from '../components/ApprovalPanel';
 import DeploymentPanel from '../components/DeploymentPanel';
 import RepositoryExplorer from '../components/RepositoryExplorer';
+import RepositoryRegistry from '../components/RepositoryRegistry';
 import TerminalPanel from '../components/TerminalPanel';
 import ValidationPanel from '../components/ValidationPanel';
 import WorkflowTimeline from '../components/WorkflowTimeline';
 import SSHKeyManager from '../components/SSHKeyManager';
 import VPSManager from '../components/VPSManager';
+import VPSFileBrowser from '../components/VPSFileBrowser';
+import MemoryPanel from '../components/MemoryPanel';
+import RollbackPanel from '../components/RollbackPanel';
 import { authHeaders, getToken } from '../hooks/useAuth';
 import './Dashboard.css';
 
@@ -15,11 +19,15 @@ const TABS = [
   { id: 'chat',       label: 'Chat',        icon: '💬' },
   { id: 'workflows',  label: 'Workflows',   icon: '⚙️' },
   { id: 'approvals',  label: 'Approvals',   icon: '✅' },
-  { id: 'repository', label: 'Repository',  icon: '📁' },
+  { id: 'registry',   label: 'Repos',       icon: '🗂️' },
+  { id: 'repository', label: 'File Browser',icon: '📁' },
   { id: 'terminal',   label: 'Terminal',    icon: '🖥️' },
   { id: 'validation', label: 'Validation',  icon: '🔍' },
   { id: 'deployment', label: 'Deployment',  icon: '🚀' },
   { id: 'vps',        label: 'VPS Servers', icon: '⚡' },
+  { id: 'vfsb',       label: 'VPS Files',   icon: '🗄️' },
+  { id: 'memory',     label: 'Memory',      icon: '🧠' },
+  { id: 'rollback',   label: 'Rollback',    icon: '↩️' },
   { id: 'ssh',        label: 'SSH Keys',    icon: '🔑' },
 ];
 
@@ -472,6 +480,16 @@ export default function Dashboard({ user, onLogout }) {
           </div>
         )}
 
+        {activeTab === 'registry' && (
+          <RepositoryRegistry
+            activeRepoName={repoCtx?.name}
+            onSelectRepo={repo => {
+              handleRepoLoaded({ ...repo, fileCount: 0 });
+              setActiveTab('chat');
+            }}
+          />
+        )}
+
         {activeTab === 'repository' && (
           <RepositoryExplorer
             onLoadRepo={handleRepoLoaded}
@@ -487,6 +505,9 @@ export default function Dashboard({ user, onLogout }) {
         {activeTab === 'validation' && <ValidationPanel />}
         {activeTab === 'deployment' && <DeploymentPanel />}
         {activeTab === 'vps'        && <VPSManager onServersChanged={fetchVpsServers} />}
+        {activeTab === 'vfsb'       && <VPSFileBrowser />}
+        {activeTab === 'memory'     && <MemoryPanel />}
+        {activeTab === 'rollback'   && <RollbackPanel />}
         {activeTab === 'ssh'        && <SSHKeyManager />}
       </main>
     </div>

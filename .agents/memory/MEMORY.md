@@ -8,3 +8,5 @@
 - [Auth Security](auth-bcrypt.md) — auth.js uses bcryptjs for password comparison (timing-safe); plain-text AUTH_PASSWORD env var is hashed in-memory on first login, never stored; activity logged on login/logout/failure
 - [DB Persistence](db-persistence.md) — workflows and approvals are now DB-backed (services/workflow/store.js, services/approval/runtime.js); activity_log table added to migrations; all store functions are async
 - [Production Deploy](prod-deploy.md) — deploy/ directory has nginx.conf, systemd service, PM2 ecosystem, deploy.sh script, and .env.production.example; single-origin setup — nginx proxies /ws/ as WS and all API routes direct to port 3000
+- [New Services Architecture](new-services.md) — repos/registry.js (named repo lookup), memory/agent-memory.js (global cross-project), rollback/checkpoints.js (PM2+git snapshot), deployment/validator.js (pre-deploy checks); all DB-backed with in-memory fallback
+- [SQL Comments in JS](sql-comment-pitfall.md) — never use SQL -- comment syntax between JS template literals; use // JS comments outside the backtick strings to avoid SyntaxError

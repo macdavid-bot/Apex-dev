@@ -1,0 +1,106 @@
+.reg-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.reg-form {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.reg-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.reg-form-row > div,
+.reg-form > div { display: flex; flex-direction: column; }
+
+.field-input.full { width: 100%; box-sizing: border-box; }
+
+.reg-hint { font-size: 11px; color: #8b949e; margin-top: 4px; }
+
+.reg-actions { display: flex; gap: 10px; margin-top: 4px; }
+
+.reg-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #8b949e;
+}
+.reg-empty span { font-size: 15px; display: block; margin-bottom: 6px; color: #e6edf3; }
+.reg-empty p    { font-size: 13px; }
+
+.reg-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: border-color 0.15s;
+}
+.reg-card:hover { border-color: #30363d; }
+.reg-card-active { border-color: #238636 !important; }
+
+.reg-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reg-slug {
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 1px 7px;
+  color: #79c0ff;
+  margin-right: 8px;
+}
+
+.reg-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-right: 10px;
+}
+
+.reg-github {
+  font-size: 12px;
+  color: #8b949e;
+  font-family: 'Fira Code', monospace;
+}
+
+.reg-card-btns { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+.reg-select-btn { padding: 5px 14px; font-size: 13px; }
+
+.reg-purpose {
+  font-size: 13px;
+  color: #c9d1d9;
+  margin: 8px 0 4px;
+}
+
+.reg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.reg-meta span {
+  font-size: 11px;
+  color: #8b949e;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 4px;
+  padding: 1px 7px;
+}

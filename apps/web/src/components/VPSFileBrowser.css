@@ -1,0 +1,138 @@
+.fb-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.fb-server-select { width: 220px; }
+.fb-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+.fb-home, .fb-seg {
+  padding: 2px 6px;
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  border: none;
+  color: #58a6ff;
+  white-space: nowrap;
+}
+.fb-sep { color: #30363d; font-size: 13px; margin: 0 1px; }
+
+.fb-layout {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fb-listing {
+  flex-shrink: 0;
+  width: 280px;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  overflow-y: auto;
+  max-height: 500px;
+}
+
+.fb-entry {
+  display: flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-bottom: 1px solid #0d1117;
+  cursor: pointer;
+  gap: 8px;
+  font-size: 13px;
+  transition: background 0.1s;
+}
+.fb-entry:hover { background: #1c2128; }
+.fb-entry-up { color: #8b949e; }
+.fb-entry-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.fb-icon { font-size: 14px; flex-shrink: 0; }
+.fb-name { flex: 1; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-dir .fb-name { color: #58a6ff; }
+.fb-size { font-size: 11px; color: #8b949e; flex-shrink: 0; min-width: 40px; text-align: right; }
+.fb-date { font-size: 11px; color: #8b949e; flex-shrink: 0; margin-left: 8px; display: none; }
+.fb-del {
+  padding: 2px 6px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.fb-entry:hover .fb-del { opacity: 1; }
+
+.fb-loading { padding: 20px; text-align: center; color: #8b949e; font-size: 13px; }
+
+.fb-viewer {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.fb-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #21262d;
+  flex-shrink: 0;
+}
+.fb-viewer-path {
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  color: #8b949e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 10px;
+}
+.fb-save-btn { padding: 5px 14px; font-size: 13px; }
+
+.fb-save-msg {
+  padding: 6px 14px;
+  font-size: 12px;
+  border-bottom: 1px solid #21262d;
+}
+.fb-save-msg.ok  { color: #56d364; background: #0f1e12; }
+.fb-save-msg.err { color: #f85149; background: #1e0d0c; }
+
+.fb-content {
+  flex: 1;
+  margin: 0;
+  padding: 14px;
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  color: #c9d1d9;
+  white-space: pre;
+  overflow: auto;
+  line-height: 1.6;
+}
+
+.fb-editor {
+  flex: 1;
+  background: #0d1117;
+  border: none;
+  outline: none;
+  padding: 14px;
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  color: #c9d1d9;
+  resize: none;
+  line-height: 1.6;
+}
