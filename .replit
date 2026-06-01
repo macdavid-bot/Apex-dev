@@ -62,3 +62,12 @@ externalPort = 3001
 deploymentTarget = "autoscale"
 run = ["bash", "-c", "pnpm --filter @apex/api start"]
 build = ["bash", "-c", "pnpm --filter @apex/web build"]
+
+[userenv]
+
+[userenv.shared]
+PORT = "3000"
+HOST = "0.0.0.0"
+NODE_ENV = "development"
+DEEPSEEK_MODEL = "deepseek-chat"
+DB_SSL = "false"
