@@ -191,6 +191,30 @@ CREATE TABLE IF NOT EXISTS domains (
 );
 `;
 
+const HEALTH_MONITOR_DDL = `
+CREATE TABLE IF NOT EXISTS vps_health_monitors (
+  id                TEXT PRIMARY KEY,
+  server_id         TEXT NOT NULL,
+  enabled           BOOLEAN DEFAULT TRUE,
+  check_interval_sec INT DEFAULT 60,
+  alert_webhook     TEXT DEFAULT '',
+  alert_email       TEXT DEFAULT '',
+  checks            JSONB DEFAULT '{}',
+  created_at        TIMESTAMPTZ DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS vps_health_alerts (
+  id          TEXT PRIMARY KEY,
+  monitor_id  TEXT,
+  server_id   TEXT,
+  severity    TEXT DEFAULT 'warning',
+  message     TEXT NOT NULL,
+  details     JSONB DEFAULT '{}',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+`;
+
 // Safe column additions for existing deployments (idempotent)
 const ALTER_DDL = `
 DO $$ BEGIN
@@ -206,6 +230,7 @@ export async function runMigrations() {
   try {
     await pool.query(DDL);
     await pool.query(DOMAINS_DDL);
+    await pool.query(HEALTH_MONITOR_DDL);
     await pool.query(ALTER_DDL);
     console.log('[DB] Migrations applied');
   } catch (err) {

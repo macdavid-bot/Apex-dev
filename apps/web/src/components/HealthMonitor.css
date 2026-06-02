@@ -1,0 +1,28 @@
+.health-panel { display: flex; flex-direction: column; gap: 16px; }
+.health-msg { padding: 10px 14px; border-radius: 6px; font-size: 13px; }
+.health-msg.ok    { background: rgba(63,185,80,.15); color: #3fb950; border: 1px solid rgba(63,185,80,.3); }
+.health-msg.error { background: rgba(248,81,73,.15);  color: #f85149; border: 1px solid rgba(248,81,73,.3); }
+
+.health-form { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.health-form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+
+.health-section-title { font-size: 13px; font-weight: 600; color: #8b949e; margin-bottom: 8px; }
+
+.health-monitor-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.health-monitor-card:hover { border-color: #58a6ff40; }
+.health-monitor-main { display: flex; flex-direction: column; gap: 4px; }
+.health-monitor-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.health-monitor-name { font-weight: 600; font-size: 14px; color: #e6edf3; }
+.health-badge { font-size: 11px; font-weight: 600; }
+.health-badge.ok    { color: #3fb950; }
+.health-badge.muted { color: #8b949e; }
+.health-monitor-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #8b949e; }
+.health-monitor-actions { display: flex; gap: 8px; }
+
+.health-alert-list { display: flex; flex-direction: column; gap: 4px; }
+.health-alert { display: flex; gap: 12px; align-items: center; padding: 8px 12px; border-radius: 6px; font-size: 12px; background: #0d1117; border: 1px solid #21262d; }
+.health-alert .health-alert-sev { font-weight: 600; font-size: 11px; }
+.health-alert.critical .health-alert-sev { color: #f85149; }
+.health-alert.warning  .health-alert-sev { color: #d29922; }
+.health-alert .health-alert-msg { color: #e6edf3; flex: 1; }
+.health-alert .health-alert-ts { color: #6e7681; font-size: 11px; }

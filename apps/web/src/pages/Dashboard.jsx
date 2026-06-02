@@ -14,6 +14,7 @@ import MemoryPanel from '../components/MemoryPanel';
 import RollbackPanel from '../components/RollbackPanel';
 import DomainManager from '../components/DomainManager';
 import DatabaseAdmin from '../components/DatabaseAdmin';
+import HealthMonitor from '../components/HealthMonitor';
 import { authHeaders, getToken } from '../hooks/useAuth';
 import './Dashboard.css';
 
@@ -32,6 +33,7 @@ const TABS = [
   { id: 'rollback',   label: 'Rollback',    icon: '↩️' },
   { id: 'domains',    label: 'Domains',     icon: '🌐' },
   { id: 'db',         label: 'DB Admin',    icon: '🗃️' },
+  { id: 'health',     label: 'Health',      icon: '💊' },
   { id: 'ssh',        label: 'SSH Keys',    icon: '🔑' },
 ];
 
@@ -514,6 +516,7 @@ export default function Dashboard({ user, onLogout }) {
         {activeTab === 'rollback'   && <RollbackPanel />}
         {activeTab === 'domains'    && <DomainManager />}
         {activeTab === 'db'         && <DatabaseAdmin />}
+        {activeTab === 'health'     && <HealthMonitor />}
         {activeTab === 'ssh'        && <SSHKeyManager />}
       </main>
     </div>

@@ -29,6 +29,7 @@ apex-dev/
 │   │       │   ├── files.js          Local file browser
 │   │       │   ├── shell.js          Shell command runner
 │   │       │   ├── system.js         System info
+│   │       │   ├── health-monitor.js   VPS health monitoring CRUD + status
 │   │       │   ├── terminal.js       Terminal REST shim
 │   │       │   └── workspace.js      Workspace context
 │   │       └── ws/
@@ -51,11 +52,20 @@ apex-dev/
 │           │   ├── RollbackPanel.jsx      Checkpoint + restore UI
 │           │   ├── DomainManager.jsx      Domain registry + nginx deployer
 │           │   ├── DatabaseAdmin.jsx      DB backup import / export
+│           │   ├── HealthMonitor.jsx        VPS health monitor dashboard
 │           │   └── SSHKeyManager.jsx      SSH key management
 │           ├── pages/
 │           │   └── Dashboard.jsx          Main layout + tab router
 │           └── hooks/
 │               └── useAuth.js             JWT auth hook
+├── deploy/                      VPS deployment scripts + nginx config
+│   ├── .env.production.example  — Production env template
+│   ├── ecosystem.config.cjs     — PM2 ecosystem file
+│   ├── nginx.conf              — Nginx reverse-proxy config
+│   ├── apex-dev.service        — systemd service file
+│   ├── vps-health-monitor.sh  — Standalone VPS health monitor installer
+│   ├── vps-health-monitor.service — systemd service for health monitor
+│   └── deploy.sh               — One-click VPS deploy script
 └── services/                    Shared Node.js services (workspace root)
     ├── ai/                      DeepSeek streaming client
     ├── auth/                    JWT + bcrypt middleware
@@ -66,7 +76,7 @@ apex-dev/
     ├── file/                    Local file read / patch / list
     ├── git/                     Branch creation, diff
     ├── memory/                  Project memory + global agent memory
-    ├── monitoring/              Activity audit log
+    ├── monitoring/              Activity audit log + VPS health engine
     ├── queue/                   Job queue + background worker
     ├── repos/                   Repository registry (named repos)
     ├── rollback/                Checkpoint + restore system
@@ -160,6 +170,7 @@ The orchestrator agent runs an autonomous loop with these actions:
 | Memory | View and manage global agent memory |
 | Rollback | Deployment checkpoints + one-click restore |
 | SSH Keys | SSH key management |
+| Health Monitor | VPS health status + alerts + standalone monitor |
 
 ## Features
 
@@ -195,6 +206,14 @@ Pre-flight check before every deploy:
 - Confirms PM2 and Node are available
 - Checks free disk space
 - Verifiable via the `validate_deployment` AI action
+
+### VPS Health Monitor
+Standalone health monitoring for each VPS server:
+- **Built-in** (Apex Dev UI): register a VPS and see real-time health status (PM2, nginx, disk, DB, port)
+- **Standalone** (`deploy/vps-health-monitor.sh`): run independently on any VPS via systemd/PM2 — works even when Apex Dev is offline
+- Checks: PM2 processes, nginx status, disk usage, PostgreSQL reachability, app port listening
+- Alerts: webhook + email on critical failures (PM2 down or app port not listening)
+- Configurable interval (default 60s), threshold-based disk alerts
 
 ### Streaming AI Jobs
 - POST to `/orchestrator/chat` enqueues background job
@@ -304,6 +323,16 @@ pm2 restart apex-dev
 | POST | `/memory/agent` | Store memory |
 | DELETE | `/memory/agent/:id` | Forget memory |
 
+### VPS Health Monitor
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health-monitor/configs` | List health monitor configs |
+| POST | `/health-monitor/configs` | Register health monitor config |
+| PATCH | `/health-monitor/configs/:id` | Update config |
+| DELETE | `/health-monitor/configs/:id` | Remove config |
+| POST | `/health-monitor/configs/:id/check` | Run health check + return status |
+| GET | `/health-monitor/alerts` | List recent health alerts |
+
 ### Rollback
 | Method | Path | Description |
 |---|---|---|
@@ -331,6 +360,8 @@ Auto-migrated tables:
 | `agent_memory` | Global structured memory |
 | `rollback_checkpoints` | Deployment snapshots |
 | `deployment_resources` | RAM/CPU limits per service |
+| `vps_health_monitors` | Per-server health monitor configs |
+| `vps_health_alerts` | Health alert history (JSONB) |
 
 ## License
 

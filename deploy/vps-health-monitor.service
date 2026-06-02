@@ -1,0 +1,15 @@
+[Unit]
+Description=Apex Dev VPS Health Monitor
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /opt/apex-health-monitor/monitor.js
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=apex-health-monitor
+
+[Install]
+WantedBy=multi-user.target

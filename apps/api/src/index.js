@@ -39,6 +39,7 @@ import reposRoutes          from './routes/repos.js';
 import rollbackRoutes       from './routes/rollback.js';
 import domainsRoutes        from './routes/domains.js';
 import dbAdminRoutes        from './routes/db-admin.js';
+import healthMonitorRoutes  from './routes/health-monitor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app    = express();
@@ -121,6 +122,7 @@ app.use('/repos',             requireAuth, reposRoutes);
 app.use('/rollback',          requireAuth, rollbackRoutes);
 app.use('/domains',           requireAuth, domainsRoutes);
 app.use('/db-admin',          requireAuth, dbAdminRoutes);
+app.use('/health-monitor',    requireAuth, healthMonitorRoutes);
 
 // ── WebSocket servers ─────────────────────────────────────────────────────────
 const termWss = new WebSocketServer({ noServer: true });

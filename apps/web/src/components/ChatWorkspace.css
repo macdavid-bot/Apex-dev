@@ -218,7 +218,7 @@ h5.md-heading { font-size: 12px; }
 }
 .action-step-link:hover { text-decoration: underline; }
 
-/* ── Live Activity Log (Replit-style step feed) ──────────── */
+/* ── Live Activity Log (step feed) ──────────── */
 .live-activity-log {
   display: flex;
   flex-direction: column;
