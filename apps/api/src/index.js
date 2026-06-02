@@ -37,6 +37,8 @@ import filesRoutes          from './routes/files.js';
 import jobsRoutes           from './routes/jobs.js';
 import reposRoutes          from './routes/repos.js';
 import rollbackRoutes       from './routes/rollback.js';
+import domainsRoutes        from './routes/domains.js';
+import dbAdminRoutes        from './routes/db-admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app    = express();
@@ -117,6 +119,8 @@ app.use('/files',             requireAuth, filesRoutes);
 app.use('/jobs',              jobsRoutes);                // auth applied per-route inside
 app.use('/repos',             requireAuth, reposRoutes);
 app.use('/rollback',          requireAuth, rollbackRoutes);
+app.use('/domains',           requireAuth, domainsRoutes);
+app.use('/db-admin',          requireAuth, dbAdminRoutes);
 
 // ── WebSocket servers ─────────────────────────────────────────────────────────
 const termWss = new WebSocketServer({ noServer: true });

@@ -10,3 +10,6 @@
 - [Production Deploy](prod-deploy.md) — deploy/ directory has nginx.conf, systemd service, PM2 ecosystem, deploy.sh script, and .env.production.example; single-origin setup — nginx proxies /ws/ as WS and all API routes direct to port 3000
 - [New Services Architecture](new-services.md) — repos/registry.js (named repo lookup), memory/agent-memory.js (global cross-project), rollback/checkpoints.js (PM2+git snapshot), deployment/validator.js (pre-deploy checks); all DB-backed with in-memory fallback
 - [SQL Comments in JS](sql-comment-pitfall.md) — never use SQL -- comment syntax between JS template literals; use // JS comments outside the backtick strings to avoid SyntaxError
+- [Terminal Stability](terminal-stability.md) — spawn bash with -i flag for interactive mode; server sends ping every 20s; frontend tracks onData disposable to prevent stacking; exponential backoff reconnect (max 8 attempts)
+- [Domain + DB Admin Services](domain-db-admin.md) — services/domains/manager.js + routes/domains.js + routes/db-admin.js (multer upload, SSE restore); ssh2 must be installed at workspace root with pnpm add -w
+- [Token Efficiency Actions](token-efficiency.md) — grep_file, read_file_lines, file_outline added to orchestrator; read_file auto-truncates at 400 lines with truncation notice; system prompt has 10-rule Token Efficiency section

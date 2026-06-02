@@ -12,6 +12,8 @@ import VPSManager from '../components/VPSManager';
 import VPSFileBrowser from '../components/VPSFileBrowser';
 import MemoryPanel from '../components/MemoryPanel';
 import RollbackPanel from '../components/RollbackPanel';
+import DomainManager from '../components/DomainManager';
+import DatabaseAdmin from '../components/DatabaseAdmin';
 import { authHeaders, getToken } from '../hooks/useAuth';
 import './Dashboard.css';
 
@@ -28,6 +30,8 @@ const TABS = [
   { id: 'vfsb',       label: 'VPS Files',   icon: '🗄️' },
   { id: 'memory',     label: 'Memory',      icon: '🧠' },
   { id: 'rollback',   label: 'Rollback',    icon: '↩️' },
+  { id: 'domains',    label: 'Domains',     icon: '🌐' },
+  { id: 'db',         label: 'DB Admin',    icon: '🗃️' },
   { id: 'ssh',        label: 'SSH Keys',    icon: '🔑' },
 ];
 
@@ -508,6 +512,8 @@ export default function Dashboard({ user, onLogout }) {
         {activeTab === 'vfsb'       && <VPSFileBrowser />}
         {activeTab === 'memory'     && <MemoryPanel />}
         {activeTab === 'rollback'   && <RollbackPanel />}
+        {activeTab === 'domains'    && <DomainManager />}
+        {activeTab === 'db'         && <DatabaseAdmin />}
         {activeTab === 'ssh'        && <SSHKeyManager />}
       </main>
     </div>

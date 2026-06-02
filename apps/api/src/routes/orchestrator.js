@@ -197,16 +197,60 @@ Categories: architecture, instruction, infrastructure, deployment, preference, f
 {"type": "self_inspect", "path": "apps/api/src/routes/orchestrator.js"}
 \`\`\`
 
+**grep_file** — Search for a pattern within a specific file and get matching lines + context. Use this instead of read_file when you only need to find something inside a known file.
+\`\`\`apex-action
+{"type": "grep_file", "path": "src/server.js", "pattern": "handleLogin", "context_lines": 4}
+\`\`\`
+
+**read_file_lines** — Read a specific line range from a file instead of the whole file. Use when you know which lines you need.
+\`\`\`apex-action
+{"type": "read_file_lines", "path": "src/server.js", "start_line": 120, "end_line": 180}
+\`\`\`
+
+**file_outline** — Get the structural outline of a file (functions, classes, exports) without reading all content. Use this BEFORE read_file to decide if you actually need the full file.
+\`\`\`apex-action
+{"type": "file_outline", "path": "src/server.js"}
+\`\`\`
+
+**configure_domain** — Set up an nginx reverse-proxy config for a domain on a VPS server and optionally issue SSL via certbot.
+\`\`\`apex-action
+{"type": "configure_domain", "server_id": "abc123", "domain": "app.example.com", "app_port": 3000, "ssl": true}
+\`\`\`
+
+**list_domains** — List all configured domains and their status.
+\`\`\`apex-action
+{"type": "list_domains"}
+\`\`\`
+
+**restore_db_backup** — Restore a PostgreSQL backup file (.sql) on a VPS server. The file must already exist on the VPS (upload it first with write_vps_file or scp).
+\`\`\`apex-action
+{"type": "restore_db_backup", "server_id": "abc123", "backup_path": "/tmp/backup.sql", "database_url": "postgresql://user:pass@localhost/mydb"}
+\`\`\`
+
+## Token Efficiency — Critical Rules
+You MUST follow these rules on every repository task to minimise token consumption:
+
+1. **Search → Outline → Grep → Read → Edit**: This is the only acceptable order. Never skip to read_file without first searching.
+2. **file_outline before read_file**: For any file > 100 lines, call file_outline first. Only call read_file if you actually need the full body.
+3. **grep_file over read_file**: When you need to find or verify something inside a specific file, use grep_file. Reserve read_file for files you must edit entirely.
+4. **read_file_lines for targeted edits**: If you know the line range from a search result, use read_file_lines instead of reading the whole file.
+5. **One search replaces many reads**: A well-crafted search_repo query replaces reading 5–10 files. Search first with precise terms (function name, error string, config key).
+6. **Never read files "for context"**: Only read a file if you are about to edit it or it directly answers a question.
+7. **No duplicate reads**: Never read the same file twice in one task. If you need content again, use grep_file on the remembered path.
+8. **Minimal old_str**: In edit_file, old_str needs only 3–5 lines of unique context — not whole functions.
+9. **Skip boilerplate files**: Never read package.json, lock files, or config files unless explicitly asked.
+10. **Stop when done**: Once the edit is made and verified, stop. Do not do exploratory reads after the task is complete.
+
 ## Workflow Rules
 1. **Search before reading**: Always start with search_repo or search_code_fts to find relevant files.
 2. **Branch first**: Create a feature branch before any edits. Never commit directly to main.
-3. **Read before editing**: Read the current file content before calling edit_file.
-4. **Surgical edits**: Use old_str/new_str with 2-3 lines of context. Never rewrite whole files.
+3. **Outline then read**: Use file_outline to decide if full read is necessary. Skip read if grep_file or the outline is sufficient.
+4. **Surgical edits**: Use old_str/new_str with 3–5 lines of unique context. Never rewrite whole files.
 5. **Test before PR**: ALWAYS call run_tests after editing code. Fix failures and retry up to 3 times. Only call create_pull_request after tests pass.
-6. **Remember**: Use add_memory for important discoveries (architecture, quirks, patterns).
-7. **Narrate**: Briefly describe what you're doing before each action so the user can follow along.
-8. **On error**: Read the error, reason about the fix, retry with corrected action.
-9. **VPS actions**: Use server IDs listed in the context above. For deploy, prefer deploy_to_vps over individual run_vps commands.`;
+6. **Remember discoveries**: Use add_memory for architecture quirks, deployment patterns, important findings.
+7. **Narrate briefly**: One sentence describing what you're doing before each action block.
+8. **On error**: Read the error carefully, reason about root cause, retry with corrected action.
+9. **VPS actions**: Use server IDs listed in the system context. Prefer deploy_to_vps over multiple run_vps commands.`;
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -276,6 +320,12 @@ function stepLabel(action) {
     case 'read_vps_file':       return `Reading \`${action.path}\` on VPS`;
     case 'write_vps_file':      return `Writing \`${action.path}\` on VPS`;
     case 'self_inspect':        return `Inspecting \`${action.path}\``;
+    case 'grep_file':           return `Grepping \`${action.path}\` for \`${(action.pattern || '').slice(0, 40)}\``;
+    case 'read_file_lines':     return `Reading \`${action.path}\` lines ${action.start_line}–${action.end_line}`;
+    case 'file_outline':        return `Outlining \`${action.path}\``;
+    case 'configure_domain':    return `Configuring domain \`${action.domain}\``;
+    case 'list_domains':        return `Listing configured domains`;
+    case 'restore_db_backup':   return `Restoring DB backup on VPS`;
     default:                    return action.type;
   }
 }
@@ -346,6 +396,18 @@ function stepDoneLabel(action, result) {
       return result.error ? `Write failed: ${result.error}` : `Wrote ${result.bytes || '?'} bytes to ${action.path}`;
     case 'self_inspect':
       return result.error ? `Inspect failed: ${result.error}` : `Read ${action.path} (${result.lines || '?'} lines)`;
+    case 'grep_file':
+      return result.error ? `Grep failed: ${result.error}` : `${result.matches?.length || 0} matches in \`${action.path}\``;
+    case 'read_file_lines':
+      return result.error ? `Read failed: ${result.error}` : `Lines ${action.start_line}–${action.end_line} of \`${action.path}\``;
+    case 'file_outline':
+      return result.error ? `Outline failed: ${result.error}` : `Outline of \`${action.path}\` (${result.symbols?.length || 0} symbols)`;
+    case 'configure_domain':
+      return result.error ? `Domain config failed: ${result.error}` : `Domain \`${action.domain}\` configured${result.ssl ? ' with SSL' : ''}`;
+    case 'list_domains':
+      return result.error ? `List failed` : `${result.domains?.length || 0} domains configured`;
+    case 'restore_db_backup':
+      return result.error ? `Restore failed: ${result.error}` : `DB restore complete ✓`;
     default:                return action.type;
   }
 }
@@ -411,7 +473,13 @@ async function executeAction(action, conv) {
         if (!res.ok) return { error: `GitHub: ${res.status} for ${path}` };
         const data = await res.json();
         const content = Buffer.from(data.content, 'base64').toString('utf-8');
-        return { path, content, sha: data.sha, branch: b, lines: content.split('\n').length };
+        const allLines = content.split('\n');
+        const MAX_LINES = 400;
+        if (allLines.length > MAX_LINES) {
+          const truncated = allLines.slice(0, MAX_LINES).join('\n');
+          return { path, content: truncated + `\n\n…[TRUNCATED — file has ${allLines.length} lines, showing first ${MAX_LINES}. Use read_file_lines or grep_file for specific sections]`, sha: data.sha, branch: b, lines: allLines.length, truncated: true };
+        }
+        return { path, content, sha: data.sha, branch: b, lines: allLines.length };
       }
       return readLocalFile(path);
     }
@@ -932,9 +1000,212 @@ async function executeAction(action, conv) {
     case 'self_inspect': {
       const { path: filePath } = action;
       if (!filePath) return { error: 'path is required' };
-      // Restrict to the workspace root — prevent reading outside /home or ../../ escapes
       const resolvedPath = filePath.replace(/\.\.\//g, '').replace(/^\//, '');
       return readLocalFile(resolvedPath);
+    }
+
+    // ── grep_file ─────────────────────────────────────────────────────────────
+    case 'grep_file': {
+      const { path: gfPath, pattern, context_lines = 3 } = action;
+      if (!gfPath || !pattern) return { error: 'path and pattern are required' };
+      const ctx = Math.min(parseInt(context_lines) || 3, 10);
+
+      if (repoCtx?.owner) {
+        // GitHub: fetch file and grep in memory
+        const b = action.branch || repoCtx.branch || 'main';
+        const res = await fetch(
+          `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/contents/${gfPath}?ref=${b}`,
+          { headers: ghHeaders() }
+        );
+        if (!res.ok) return { error: `GitHub: ${res.status} for ${gfPath}` };
+        const data = await res.json();
+        const lines = Buffer.from(data.content, 'base64').toString('utf-8').split('\n');
+        const re = new RegExp(pattern, 'gi');
+        const matches = [];
+        lines.forEach((line, i) => {
+          if (re.test(line)) {
+            const start = Math.max(0, i - ctx);
+            const end   = Math.min(lines.length - 1, i + ctx);
+            matches.push({ line: i + 1, context: lines.slice(start, end + 1).map((l, j) => `${start + j + 1}: ${l}`).join('\n') });
+          }
+        });
+        return { path: gfPath, pattern, totalLines: lines.length, matches: matches.slice(0, 20) };
+      }
+
+      // Local
+      const escaped = pattern.replace(/"/g, '\\"');
+      const r = await runShellCommand(`grep -n -C ${ctx} "${escaped}" "${gfPath}" 2>/dev/null | head -200`, process.cwd());
+      const lines_r = await runShellCommand(`wc -l < "${gfPath}" 2>/dev/null`, process.cwd());
+      const rawMatches = r.stdout.trim().split(/\n--\n/).filter(Boolean).slice(0, 20).map(block => ({ context: block }));
+      return { path: gfPath, pattern, totalLines: parseInt(lines_r.stdout.trim()) || 0, matches: rawMatches };
+    }
+
+    // ── read_file_lines ───────────────────────────────────────────────────────
+    case 'read_file_lines': {
+      const { path: rflPath, start_line = 1, end_line } = action;
+      if (!rflPath) return { error: 'path is required' };
+      const s = Math.max(1, parseInt(start_line));
+      const e = end_line ? Math.min(parseInt(end_line), s + 500) : s + 200;
+
+      if (repoCtx?.owner) {
+        const b = action.branch || repoCtx.branch || 'main';
+        const res = await fetch(
+          `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/contents/${rflPath}?ref=${b}`,
+          { headers: ghHeaders() }
+        );
+        if (!res.ok) return { error: `GitHub: ${res.status} for ${rflPath}` };
+        const data = await res.json();
+        const allLines = Buffer.from(data.content, 'base64').toString('utf-8').split('\n');
+        const slice   = allLines.slice(s - 1, e);
+        const content = slice.map((l, i) => `${s + i}: ${l}`).join('\n');
+        return { path: rflPath, start_line: s, end_line: Math.min(e, allLines.length), total_lines: allLines.length, content };
+      }
+
+      const r = await runShellCommand(`sed -n '${s},${e}p' "${rflPath}" 2>/dev/null`, process.cwd());
+      const totalR = await runShellCommand(`wc -l < "${rflPath}" 2>/dev/null`, process.cwd());
+      const numbered = r.stdout.split('\n').map((l, i) => `${s + i}: ${l}`).join('\n');
+      return { path: rflPath, start_line: s, end_line: e, total_lines: parseInt(totalR.stdout.trim()) || 0, content: numbered };
+    }
+
+    // ── file_outline ──────────────────────────────────────────────────────────
+    case 'file_outline': {
+      const { path: foPath } = action;
+      if (!foPath) return { error: 'path is required' };
+      const ext = foPath.split('.').pop().toLowerCase();
+
+      let raw = '';
+      let totalLines = 0;
+
+      if (repoCtx?.owner) {
+        const b = action.branch || repoCtx.branch || 'main';
+        const res = await fetch(
+          `https://api.github.com/repos/${repoCtx.owner}/${repoCtx.repo}/contents/${foPath}?ref=${b}`,
+          { headers: ghHeaders() }
+        );
+        if (!res.ok) return { error: `GitHub: ${res.status} for ${foPath}` };
+        const data = await res.json();
+        raw = Buffer.from(data.content, 'base64').toString('utf-8');
+      } else {
+        const r = await readLocalFile(foPath);
+        if (r.error) return r;
+        raw = r.content;
+      }
+
+      const lines = raw.split('\n');
+      totalLines = lines.length;
+
+      // Extract symbols: functions, classes, exports, top-level consts
+      const patterns = [
+        /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/,
+        /^(?:export\s+)?class\s+(\w+)/,
+        /^(?:export\s+(?:const|let|var)\s+)(\w+)\s*=/,
+        /^(?:module\.exports|exports)\s*[.=]/,
+        /^(?:export default)/,
+        /^\s{0,2}(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{/,
+        /^def\s+(\w+)/,       // Python
+        /^class\s+(\w+)/,     // Python
+        /^func\s+(\w+)/,      // Go
+        /^pub\s+fn\s+(\w+)/,  // Rust
+      ];
+
+      const symbols = [];
+      lines.forEach((line, i) => {
+        for (const pat of patterns) {
+          const m = line.match(pat);
+          if (m) {
+            symbols.push({ line: i + 1, text: line.trim().slice(0, 100) });
+            break;
+          }
+        }
+      });
+
+      return { path: foPath, total_lines: totalLines, language: ext, symbols: symbols.slice(0, 60) };
+    }
+
+    // ── configure_domain ──────────────────────────────────────────────────────
+    case 'configure_domain': {
+      const { server_id, domain, app_port = 3000, ssl = false, notes = '' } = action;
+      if (!server_id || !domain) return { error: 'server_id and domain are required' };
+
+      try {
+        const { addDomain: addDomainFn, buildNginxConfig: buildConf, updateDomain: updateDomFn } = await import('../../../../services/domains/manager.js');
+        const { Client: SshClient } = await import('ssh2');
+        const server = await getVpsServer(server_id);
+        if (!server) return { error: `VPS server ${server_id} not found` };
+
+        const rec = await addDomainFn({ server_id, domain, app_port: parseInt(app_port), ssl, notes });
+        const nginxConf = buildConf({ domain, app_port: parseInt(app_port), ssl });
+        const confPath  = `/etc/nginx/sites-available/${domain}`;
+
+        // Write nginx config via SSH
+        await new Promise((resolve, reject) => {
+          const conn = new SshClient();
+          conn.on('ready', () => {
+            conn.sftp((err, sftp) => {
+              if (err) { conn.end(); return reject(err); }
+              const stream = sftp.createWriteStream(confPath);
+              stream.on('close', () => {
+                conn.exec(`ln -sf ${confPath} /etc/nginx/sites-enabled/${domain} && nginx -t && systemctl reload nginx`, (e2, s2) => {
+                  let out = '';
+                  s2.on('data', d => { out += d; });
+                  s2.on('close', () => { conn.end(); resolve(out); });
+                  if (e2) { conn.end(); reject(e2); }
+                });
+              });
+              stream.on('error', err2 => { conn.end(); reject(err2); });
+              stream.end(nginxConf);
+            });
+          }).on('error', reject).connect({
+            host: server.host, port: server.port || 22,
+            username: server.username,
+            ...(server.private_key ? { privateKey: server.private_key } : { password: server.password || '' })
+          });
+        });
+
+        await updateDomFn(rec.id, { status: 'active', nginx_path: confPath });
+        return { success: true, domain, server_id, app_port, ssl, nginx_path: confPath };
+      } catch (err) {
+        return { error: err.message };
+      }
+    }
+
+    // ── list_domains ──────────────────────────────────────────────────────────
+    case 'list_domains': {
+      try {
+        const { listDomains: listDomsFn } = await import('../../../../services/domains/manager.js');
+        const domains = await listDomsFn();
+        return { domains: domains.map(d => ({ id: d.id, domain: d.domain, app_port: d.app_port, ssl: d.ssl, status: d.status, server_id: d.server_id })) };
+      } catch (err) {
+        return { error: err.message };
+      }
+    }
+
+    // ── restore_db_backup ─────────────────────────────────────────────────────
+    case 'restore_db_backup': {
+      const { server_id, backup_path, database_url } = action;
+      if (!server_id || !backup_path) return { error: 'server_id and backup_path are required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server ${server_id} not found` };
+
+      const isCustom = backup_path.endsWith('.dump');
+      const dbUrl = database_url || 'postgresql://localhost/app';
+      const cmd = isCustom
+        ? `pg_restore --no-owner --no-privileges -d "${dbUrl}" "${backup_path}" 2>&1`
+        : `psql "${dbUrl}" < "${backup_path}" 2>&1`;
+
+      try {
+        const { NodeSSH } = await import('node-ssh');
+        const ssh = new NodeSSH();
+        await ssh.connect({ host: server.host, port: server.port || 22, username: server.username, privateKey: server.private_key, readyTimeout: 10000 });
+        const r = await ssh.execCommand(cmd);
+        ssh.dispose();
+        if (r.code !== 0 && r.code !== null) {
+          return { error: `Exit ${r.code}: ${(r.stderr || r.stdout || '').slice(0, 500)}` };
+        }
+        return { success: true, output: (r.stdout || '').slice(0, 500), database_url: dbUrl };
+      } catch (err) {
+        return { error: err.message };
+      }
     }
 
     default:
@@ -1000,6 +1271,15 @@ async function buildSystemPrompt(repoCtx) {
     const memPrompt = await formatMemoryForPrompt(repoCtx.owner, repoCtx.repo);
     if (memPrompt) system += `\n\n---\n${memPrompt}\n---`;
   }
+
+  // Inject configured domains
+  try {
+    const { listDomains: listDomsFn, formatDomainsForPrompt } = await import('../../../../services/domains/manager.js');
+    const domains = await listDomsFn();
+    if (domains.length > 0) {
+      system += `\n\n---\n${formatDomainsForPrompt(domains)}\n---`;
+    }
+  } catch {}
 
   // Inject available VPS servers so AI knows what IDs to use
   try {

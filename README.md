@@ -7,32 +7,73 @@ A self-hosted AI engineering platform. Chat with an autonomous AI agent that rea
 ```
 apex-dev/
 ├── apps/
-│   ├── api/          Express.js backend (port 3000)
+│   ├── api/                     Express.js backend (port 3000)
 │   │   └── src/
-│   │       ├── routes/       REST API endpoints
-│   │       └── ws/           WebSocket handlers (terminal, VPS SSH)
-│   └── web/          React + Vite frontend (port 5000)
+│   │       ├── index.js         App entry point, route registration
+│   │       ├── routes/
+│   │       │   ├── orchestrator.js   AI agent loop + all action handlers
+│   │       │   ├── auth.js           Login / logout / me
+│   │       │   ├── vps.js            VPS CRUD + SSH exec + file browser + deploy
+│   │       │   ├── domains.js        Domain registry + nginx config deployment
+│   │       │   ├── db-admin.js       DB backup import (SSE) + export
+│   │       │   ├── repos.js          Repository registry CRUD
+│   │       │   ├── rollback.js       Checkpoint + restore
+│   │       │   ├── memory.js         Project memory + global agent memory
+│   │       │   ├── jobs.js           SSE job stream
+│   │       │   ├── deployment.js     PM2 / Docker service manager
+│   │       │   ├── validation.js     Code lint / build checks
+│   │       │   ├── workflow.js       Workflow timeline
+│   │       │   ├── approval.js       Human-in-the-loop approvals
+│   │       │   ├── github.js         GitHub API proxy
+│   │       │   ├── git.js            Branch / diff helpers
+│   │       │   ├── files.js          Local file browser
+│   │       │   ├── shell.js          Shell command runner
+│   │       │   ├── system.js         System info
+│   │       │   ├── terminal.js       Terminal REST shim
+│   │       │   └── workspace.js      Workspace context
+│   │       └── ws/
+│   │           ├── terminal.js  Local shell WebSocket (xterm.js)
+│   │           └── vps.js       VPS SSH WebSocket (xterm.js)
+│   └── web/                     React + Vite frontend (port 5000)
 │       └── src/
-│           ├── components/   UI panels
-│           ├── pages/        Dashboard
-│           └── hooks/        Auth hook
-└── services/         Shared Node.js services (workspace root)
-    ├── ai/           DeepSeek streaming client
-    ├── auth/         JWT + bcrypt middleware
-    ├── db/           PostgreSQL client + migrations
-    ├── deployment/   PM2, Docker, health, validator
-    ├── embeddings/   Full-text code search
-    ├── file/         Local file read/patch/list
-    ├── git/          Branch creation, diff
-    ├── memory/       Project memory + global agent memory
-    ├── monitoring/   Activity audit log
-    ├── queue/        Job queue + background worker
-    ├── repos/        Repository registry (named repos)
-    ├── rollback/     Checkpoint + restore system
-    ├── shell/        Shell command execution
-    ├── validation/   Code validation runner
-    ├── vps/          VPS session store
-    └── workflow/     Workflow timeline store
+│           ├── components/
+│           │   ├── ChatWorkspace.jsx      AI chat + streaming steps
+│           │   ├── WorkflowTimeline.jsx   Task activity log
+│           │   ├── ApprovalPanel.jsx      Human approval queue
+│           │   ├── RepositoryRegistry.jsx Named repo registry
+│           │   ├── RepositoryExplorer.jsx GitHub file browser + editor
+│           │   ├── TerminalPanel.jsx      Local + VPS terminal (xterm.js)
+│           │   ├── ValidationPanel.jsx    Code validation runner
+│           │   ├── DeploymentPanel.jsx    PM2 / Docker service manager
+│           │   ├── VPSManager.jsx         VPS server CRUD
+│           │   ├── VPSFileBrowser.jsx     Browse + edit files on VPS
+│           │   ├── MemoryPanel.jsx        Global agent memory viewer
+│           │   ├── RollbackPanel.jsx      Checkpoint + restore UI
+│           │   ├── DomainManager.jsx      Domain registry + nginx deployer
+│           │   ├── DatabaseAdmin.jsx      DB backup import / export
+│           │   └── SSHKeyManager.jsx      SSH key management
+│           ├── pages/
+│           │   └── Dashboard.jsx          Main layout + tab router
+│           └── hooks/
+│               └── useAuth.js             JWT auth hook
+└── services/                    Shared Node.js services (workspace root)
+    ├── ai/                      DeepSeek streaming client
+    ├── auth/                    JWT + bcrypt middleware
+    ├── db/                      PostgreSQL client + migrations
+    ├── deployment/              PM2, Docker, health, pre-deploy validator
+    ├── domains/                 Domain registry + nginx config builder
+    ├── embeddings/              Full-text code search (FTS)
+    ├── file/                    Local file read / patch / list
+    ├── git/                     Branch creation, diff
+    ├── memory/                  Project memory + global agent memory
+    ├── monitoring/              Activity audit log
+    ├── queue/                   Job queue + background worker
+    ├── repos/                   Repository registry (named repos)
+    ├── rollback/                Checkpoint + restore system
+    ├── shell/                   Shell command execution
+    ├── validation/              Code validation runner
+    ├── vps/                     VPS session store
+    └── workflow/                Workflow timeline store
 ```
 
 ## Quick Start

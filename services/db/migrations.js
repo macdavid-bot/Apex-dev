@@ -176,6 +176,21 @@ CREATE TABLE IF NOT EXISTS deployment_resources (
 );
 `;
 
+const DOMAINS_DDL = `
+CREATE TABLE IF NOT EXISTS domains (
+  id          TEXT PRIMARY KEY,
+  server_id   TEXT,
+  domain      TEXT NOT NULL UNIQUE,
+  app_port    INT  DEFAULT 3000,
+  ssl         BOOLEAN DEFAULT FALSE,
+  notes       TEXT DEFAULT '',
+  status      TEXT DEFAULT 'pending',
+  nginx_path  TEXT DEFAULT '',
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+`;
+
 // Safe column additions for existing deployments (idempotent)
 const ALTER_DDL = `
 DO $$ BEGIN
@@ -190,6 +205,7 @@ export async function runMigrations() {
   const pool = getPool();
   try {
     await pool.query(DDL);
+    await pool.query(DOMAINS_DDL);
     await pool.query(ALTER_DDL);
     console.log('[DB] Migrations applied');
   } catch (err) {
