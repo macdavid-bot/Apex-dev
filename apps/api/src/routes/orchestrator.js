@@ -1725,17 +1725,27 @@ router.post('/chat', requireAuth, async (req, res) => {
   const id = conversationId || Math.random().toString(36).slice(2);
 
   if (!conversations.has(id)) {
-    const systemContent = await buildSystemPrompt(repoContext || null);
+    // Load from DB if available so restarts don't lose history
+    const dbMessages = await dbLoadMessages(id);
+    const dbConv = await queryOne('SELECT * FROM conversations WHERE id=$1', [id]).catch(() => null);
+    const savedRepoCtx = dbConv ? {
+      owner: dbConv.repo_owner, repo: dbConv.repo_name, branch: dbConv.repo_branch
+    } : null;
+    const mergedRepoCtx = repoContext || savedRepoCtx;
+    const systemContent = await buildSystemPrompt(mergedRepoCtx);
+    const msgList = dbMessages && dbMessages.length > 0
+      ? [{ role: 'system', content: systemContent }, ...dbMessages]
+      : [{ role: 'system', content: systemContent }];
     conversations.set(id, {
       id,
-      messages: [{ role: 'system', content: systemContent }],
-      repoCtx: repoContext || null,
+      messages: msgList,
+      repoCtx: mergedRepoCtx,
       testsPassed: false,
       lastEditBranch: null,
       lastPR: null,
-      sshKey: sshKey || null
+      sshKey: sshKey || dbConv?.ssh_key || null
     });
-    await dbSaveConversation(id, repoContext || null, sshKey || null);
+    await dbSaveConversation(id, mergedRepoCtx, sshKey || dbConv?.ssh_key || null);
   }
 
   const conv = conversations.get(id);
