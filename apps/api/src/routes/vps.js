@@ -63,12 +63,14 @@ router.get('/servers', async (req, res) => {
 router.post('/servers', async (req, res) => {
   const { label, host, username, privateKey, port = 22,
           envFile = '.env', serviceName = '', deployDir = '', deployCommands = '' } = req.body;
-  if (!label || !host || !username || !privateKey)
-    return res.status(400).json({ error: 'label, host, username, and privateKey are required' });
+  if (!label || !host || !username)
+    return res.status(400).json({ error: 'label, host, and username are required' });
+  if (!privateKey)
+    console.warn('[VPS] Warning: server added without SSH key — SSH commands will fail');
 
   const server = {
     id: makeId(), label, host, port: Number(port),
-    username, private_key: privateKey,
+    username, private_key: privateKey || '',
     env_file: envFile, service_name: serviceName,
     deploy_dir: deployDir, deploy_commands: deployCommands
   };

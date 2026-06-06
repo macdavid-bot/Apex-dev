@@ -154,11 +154,6 @@ export default function RepositoryRegistry({ onSelectRepo, activeRepoName }) {
                 {servers.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
-            <div>
-              <label className="field-label">Clone path on VPS</label>
-              <input className="field-input" placeholder="/home/user/app" value={form.clonePath}
-                onChange={e => setField('clonePath', e.target.value)} />
-            </div>
           </div>
 
           <div>

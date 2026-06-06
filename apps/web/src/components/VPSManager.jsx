@@ -8,6 +8,11 @@ const DEFAULT_FORM = {
   serviceName: '', envFile: '.env'
 };
 
+const EMPTY_FORM = {
+  label: '', host: '', port: '22', username: 'root', privateKey: '',
+  deployDir: '', deployCommands: '', serviceName: '', envFile: '.env'
+};
+
 export default function VPSManager({ onServersChanged }) {
   const [servers, setServers]         = useState([]);
   const [showAdd, setShowAdd]         = useState(false);
@@ -39,7 +44,7 @@ export default function VPSManager({ onServersChanged }) {
 
   async function handleAdd(e) {
     e.preventDefault();
-    if (!form.label || !form.host || !form.username || !form.privateKey) return;
+    if (!form.label || !form.host || !form.username) return;
     setSaving(true);
     const res = await fetch('/vps/servers', {
       method: 'POST',
@@ -53,7 +58,7 @@ export default function VPSManager({ onServersChanged }) {
     });
     setSaving(false);
     if (res.ok) {
-      setForm(DEFAULT_FORM);
+      setForm(EMPTY_FORM);
       setShowAdd(false);
       await refresh();
       onServersChanged?.();
@@ -175,13 +180,12 @@ export default function VPSManager({ onServersChanged }) {
             </div>
           </div>
           <div className="vps-form-group">
-            <label>SSH Private Key *</label>
+            <label>SSH Private Key <span className="muted">(optional — add later to enable SSH commands)</span></label>
             <textarea
               value={form.privateKey}
               onChange={e => setField('privateKey', e.target.value)}
               placeholder={'-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----'}
               rows={6}
-              required
             />
           </div>
           <div className="vps-form-row">

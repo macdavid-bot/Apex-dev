@@ -32,6 +32,7 @@ export default defineConfig({
       '/health': 'http://localhost:3000',
       '/github': 'http://localhost:3000',
       '/vps': 'http://localhost:3000',
+      '/repos': 'http://localhost:3000',
       '/files': 'http://localhost:3000',
       '/socket.io': {
         target: 'http://localhost:3000',
