@@ -20,6 +20,9 @@ importers:
       multer:
         specifier: ^2.1.1
         version: 2.1.1
+      node-ssh:
+        specifier: ^13.2.1
+        version: 13.2.1
       pg:
         specifier: ^8.21.0
         version: 8.21.0

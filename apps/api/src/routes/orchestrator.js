@@ -12,6 +12,7 @@ import { listRepos, getRepo, formatReposForPrompt } from '../../../../services/r
 import { createCheckpoint, listCheckpoints, restoreCheckpoint } from '../../../../services/rollback/checkpoints.js';
 import { validateVpsDeployment } from '../../../../services/deployment/validator.js';
 import { searchCode } from '../../../../services/embeddings/fts.js';
+import { autoDeploy, addApiKeysToVps, runDiagnostics } from '../../../../services/deploy/autonomous.js';
 import { requireAuth } from '../../../../services/auth/middleware.js';
 import { query, queryOne, dbAvailable } from '../../../../services/db/client.js';
 
@@ -227,6 +228,44 @@ Categories: architecture, instruction, infrastructure, deployment, preference, f
 {"type": "restore_db_backup", "server_id": "abc123", "backup_path": "/tmp/backup.sql", "database_url": "postgresql://user:pass@localhost/mydb"}
 \`\`\`
 
+**auto_deploy** — Full autonomous deployment: clone repo, install, configure, PM2 always-on, domain + SSL. ONE action does everything.
+\`\`\`apex-action
+{"type": "auto_deploy", "server_id": "abc123", "repo_url": "https://github.com/user/myapp.git", "branch": "main", "domain": "myapp.com", "app_port": 3000, "ssl": true, "env_vars": {"DATABASE_URL": "postgresql://user:pass@localhost/mydb", "JWT_SECRET": "secret"}, "setup_db": true}
+\`\`\`
+- setup_db: auto-creates PostgreSQL user/database on the VPS and generates DATABASE_URL
+- ssl: true automatically issues Let's Encrypt certificate
+- app stays always-on via PM2 even if Apex Dev goes offline
+
+**auto_setup_db** — Upload and restore multiple .sql files to a VPS database.
+\`\`\`apex-action
+{"type": "auto_setup_db", "server_id": "abc123", "files": ["/tmp/db1.sql", "/tmp/db2.sql"], "database_url": "postgresql://user:pass@localhost/mydb"}
+\`\`\`
+
+**auto_add_keys** — Safely add multiple API keys to a VPS .env file.
+\`\`\`apex-action
+{"type": "auto_add_keys", "server_id": "abc123", "keys": {"OPENAI_API_KEY": "sk-...", "STRIPE_SECRET": "sk_..."}, "env_file": ".env"}
+\`\`\`
+
+**auto_connect_domain** — Full domain setup: nginx reverse proxy + SSL on VPS.
+\`\`\`apex-action
+{"type": "auto_connect_domain", "server_id": "abc123", "domain": "myapp.com", "app_port": 3000, "ssl": true}
+\`\`\`
+
+**run_vps_sudo** — Run a privileged command on a VPS with sudo.
+\`\`\`apex-action
+{"type": "run_vps_sudo", "server_id": "abc123", "command": "apt-get update && apt-get install -y nginx"}
+\`\`\`
+
+**debug_self** — Run diagnostics on a VPS app and get actionable error analysis.
+\`\`\`apex-action
+{"type": "debug_self", "server_id": "abc123", "target_dir": "/var/www/myapp"}
+\`\`\`
+
+**retry_with_fix** — Re-run a failed command with a corrected version.
+\`\`\`apex-action
+{"type": "retry_with_fix", "server_id": "abc123", "failed_command": "npm install", "fixed_command": "npm install --legacy-peer-deps", "cwd": "/var/www/myapp"}
+\`\`\`
+
 ## Token Efficiency — Critical Rules
 You MUST follow these rules on every repository task to minimise token consumption:
 
@@ -326,6 +365,13 @@ function stepLabel(action) {
     case 'configure_domain':    return `Configuring domain \`${action.domain}\``;
     case 'list_domains':        return `Listing configured domains`;
     case 'restore_db_backup':   return `Restoring DB backup on VPS`;
+    case 'auto_deploy':         return `Auto-deploying ${action.repo_url?.split('/').pop() || 'app'} to VPS`;
+    case 'auto_setup_db':       return `Setting up ${action.files?.length || 0} DB files on VPS`;
+    case 'auto_add_keys':       return `Adding ${Object.keys(action.keys || {}).length} keys to VPS`;
+    case 'auto_connect_domain': return `Connecting domain ${action.domain} to VPS`;
+    case 'run_vps_sudo':        return `Running sudo: ${(action.command || '').slice(0, 60)}`;
+    case 'debug_self':          return `Running diagnostics on VPS`;
+    case 'retry_with_fix':      return `Retrying: ${(action.fixed_command || '').slice(0, 60)}`;
     default:                    return action.type;
   }
 }
@@ -408,6 +454,20 @@ function stepDoneLabel(action, result) {
       return result.error ? `List failed` : `${result.domains?.length || 0} domains configured`;
     case 'restore_db_backup':
       return result.error ? `Restore failed: ${result.error}` : `DB restore complete ✓`;
+    case 'auto_deploy':
+      return result.error ? `Deploy failed: ${result.error}` : `Deployed ${result.repo} ✓ (PM2: ${result.pm2Name}, Domain: ${result.domain || 'none'})`;
+    case 'auto_setup_db':
+      return result.error ? `DB setup failed: ${result.error}` : `${result.results?.length || 0} DB files restored ✓`;
+    case 'auto_add_keys':
+      return result.error ? `Keys failed: ${result.error}` : `${result.keys?.length || 0} keys added to VPS ✓`;
+    case 'auto_connect_domain':
+      return result.error ? `Domain failed: ${result.error}` : `Domain ${action.domain} live ${result.ssl ? 'with SSL' : ''} ✓`;
+    case 'run_vps_sudo':
+      return result.error ? `Sudo error: ${result.error}` : `Sudo done (exit ${result.code})`;
+    case 'debug_self':
+      return result.error ? `Diagnostics failed: ${result.error}` : `${result.results?.filter(r => !r.ok).length || 0} issues found`;
+    case 'retry_with_fix':
+      return result.error ? `Retry failed: ${result.error}` : `Retry ${result.success ? 'succeeded' : 'failed'} ✓`;
     default:                return action.type;
   }
 }
@@ -1205,6 +1265,131 @@ async function executeAction(action, conv) {
         return { success: true, output: (r.stdout || '').slice(0, 500), database_url: dbUrl };
       } catch (err) {
         return { error: err.message };
+      }
+    }
+
+    // ── auto_deploy ─────────────────────────────────────────────────────
+    case 'auto_deploy': {
+      const { server_id, repo_url, branch, domain, app_port, ssl, env_vars, setup_db } = action;
+      if (!server_id || !repo_url) return { error: 'server_id and repo_url are required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+      return autoDeploy(server, {
+        repoUrl: repo_url, branch, deployDir: action.deploy_dir,
+        domain, appPort: app_port || 3000, ssl: ssl !== false,
+        envVars: env_vars || {}, usePm2: true, setupDb: setup_db || false
+      });
+    }
+
+    // ── auto_setup_db ───────────────────────────────────────────────────
+    case 'auto_setup_db': {
+      const { server_id, files, database_url } = action;
+      if (!server_id || !files || !files.length) return { error: 'server_id and files array are required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      const results = [];
+      try {
+        await ssh.connect({ host: server.host, port: server.port || 22, username: server.username, privateKey: server.private_key, readyTimeout: 10000 });
+        for (const filePath of files) {
+          const isCustom = filePath.endsWith('.dump');
+          const dbUrl = database_url || `postgresql://localhost:5432/app`;
+          const cmd = isCustom
+            ? `pg_restore --no-owner --no-privileges -d "${dbUrl}" "${filePath}" 2>&1`
+            : `psql "${dbUrl}" < "${filePath}" 2>&1`;
+          const r = await ssh.execCommand(cmd);
+          results.push({ file: filePath, ok: r.code === 0 || r.code === null, output: (r.stdout || r.stderr).slice(0, 500) });
+        }
+        ssh.dispose();
+        return { success: true, results, database_url: database_url || null };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message, results };
+      }
+    }
+
+    // ── auto_add_keys ──────────────────────────────────────────────────
+    case 'auto_add_keys': {
+      const { server_id, keys, env_file } = action;
+      if (!server_id || !keys || !Object.keys(keys).length) return { error: 'server_id and keys object are required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+      return addApiKeysToVps(server, keys, env_file || '.env');
+    }
+
+    // ── auto_connect_domain ───────────────────────────────────────────
+    case 'auto_connect_domain': {
+      const { server_id, domain, app_port, ssl } = action;
+      if (!server_id || !domain) return { error: 'server_id and domain are required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+      const { configureDomainOnServer } = await import('../../../../services/deploy/autonomous.js');
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({ host: server.host, port: server.port || 22, username: server.username, privateKey: server.private_key, readyTimeout: 10000 });
+        const result = await configureDomainOnServer(ssh, server, domain, app_port || 3000, ssl !== false);
+        ssh.dispose();
+        return result;
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
+      }
+    }
+
+    // ── run_vps_sudo ────────────────────────────────────────────────────
+    case 'run_vps_sudo': {
+      const { server_id, command, cwd } = action;
+      if (!server_id || !command) return { error: 'server_id and command are required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({ host: server.host, port: server.port || 22, username: server.username, privateKey: server.private_key, readyTimeout: 10000 });
+        const sudoCmd = `sudo bash -c '${command.replace(/'/g, "'\\''")}'`;
+        const r = await ssh.execCommand(sudoCmd, cwd ? { cwd } : undefined);
+        ssh.dispose();
+        return { stdout: trim4k(r.stdout), stderr: trim4k(r.stderr), code: r.code };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
+      }
+    }
+
+    // ── debug_self ─────────────────────────────────────────────────────
+    case 'debug_self': {
+      const { server_id, target_dir } = action;
+      if (!server_id) return { error: 'server_id is required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+      return runDiagnostics(server, target_dir || server.deploy_dir || '');
+    }
+
+    // ── retry_with_fix ─────────────────────────────────────────────────
+    case 'retry_with_fix': {
+      const { server_id, failed_command, fixed_command, cwd } = action;
+      if (!server_id || !fixed_command) return { error: 'server_id and fixed_command are required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({ host: server.host, port: server.port || 22, username: server.username, privateKey: server.private_key, readyTimeout: 10000 });
+        const r = await ssh.execCommand(fixed_command, cwd ? { cwd } : undefined);
+        ssh.dispose();
+        return {
+          previous: failed_command,
+          fixed: fixed_command,
+          stdout: trim4k(r.stdout),
+          stderr: trim4k(r.stderr),
+          code: r.code,
+          success: r.code === 0
+        };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message, previous: failed_command, fixed: fixed_command };
       }
     }
 

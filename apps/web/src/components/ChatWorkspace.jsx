@@ -116,6 +116,13 @@ const STEP_ICONS = {
   add_memory:          '💾',
   deploy_to_vps:       '🚀',
   set_vps_env:         '🔐',
+  auto_deploy:         '🚀',
+  auto_setup_db:       '🗄️',
+  auto_add_keys:       '🔐',
+  auto_connect_domain: '🌐',
+  run_vps_sudo:        '⚡',
+  debug_self:          '🔧',
+  retry_with_fix:      '♻️',
 };
 
 function LiveActivityLog({ steps }) {
@@ -168,6 +175,13 @@ const ACTION_ICONS = {
   deploy_to_vps:        '🚀',
   set_vps_env:          '🔐',
   parse_error:          '⚠️',
+  auto_deploy:          '🚀',
+  auto_setup_db:        '🗄️',
+  auto_add_keys:        '🔐',
+  auto_connect_domain:  '🌐',
+  run_vps_sudo:         '⚡',
+  debug_self:           '🔧',
+  retry_with_fix:       '♻️',
 };
 
 function ActionSteps({ actions }) {

@@ -163,4 +163,126 @@ router.get('/export', async (req, res) => {
   proc.on('error', err => res.status(500).json({ error: err.message }));
 });
 
+// POST /db-admin/import-multi — upload multiple .sql files and restore them all
+router.post('/import-multi', upload.array('backups', 10), async (req, res) => {
+  if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+  if (!await dbAvailable()) {
+    for (const f of req.files) fs.unlink(f.path, () => {});
+    return res.status(503).json({ error: 'No database connected — cannot restore backups' });
+  }
+
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) { for (const f of req.files) fs.unlink(f.path, () => {}); return res.status(503).json({ error: 'DATABASE_URL not configured' }); }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const { exec } = await import('child_process');
+  const results = [];
+
+  for (const file of req.files) {
+    sendSSE(res, 'progress', { message: `Restoring ${file.originalname} (${(file.size / 1024).toFixed(1)} KB)` });
+    const isCustom = file.originalname.endsWith('.dump');
+    const cmd = isCustom
+      ? `pg_restore --no-owner --no-privileges -d "${dbUrl}" "${file.path}" 2>&1`
+      : `psql "${dbUrl}" < "${file.path}" 2>&1`;
+
+    const result = await new Promise((resolve) => {
+      exec(cmd, { maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
+        fs.unlink(file.path, () => {});
+        resolve({ ok: !err || isCustom, file: file.originalname, output: (stdout || stderr || '').slice(0, 1000) });
+      });
+    });
+    results.push(result);
+    sendSSE(res, result.ok ? 'progress' : 'error', { message: result.ok ? `${file.originalname} restored` : `${file.originalname} failed`, output: result.output.slice(0, 500) });
+  }
+
+  const allOk = results.every(r => r.ok);
+  sendSSE(res, allOk ? 'done' : 'error', { message: allOk ? `All ${results.length} files restored` : `${results.filter(r => !r.ok).length} of ${results.length} files failed`, results });
+  res.end();
+});
+
+// POST /db-admin/import-multi-to-vps — upload multiple files and restore on VPS
+router.post('/import-multi-to-vps', upload.array('backups', 10), async (req, res) => {
+  if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+  const { server_id, database_url } = req.body;
+  if (!server_id) {
+    for (const f of req.files) fs.unlink(f.path, () => {});
+    return res.status(400).json({ error: 'server_id is required' });
+  }
+
+  const server = await getServer(server_id);
+  if (!server) {
+    for (const f of req.files) fs.unlink(f.path, () => {});
+    return res.status(404).json({ error: 'VPS server not found' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const conn = new Client();
+  const remotePaths = req.files.map(f => `/tmp/${path.basename(f.path)}`);
+  const dbUrl = database_url || 'postgresql://localhost/app';
+  const results = [];
+
+  conn.on('ready', () => {
+    conn.sftp(async (sftpErr, sftp) => {
+      if (sftpErr) {
+        for (const f of req.files) fs.unlink(f.path, () => {});
+        sendSSE(res, 'error', { message: sftpErr.message });
+        conn.end(); return res.end();
+      }
+
+      // Upload all files
+      for (let i = 0; i < req.files.length; i++) {
+        const f = req.files[i];
+        const remote = remotePaths[i];
+        sendSSE(res, 'progress', { message: `Uploading ${f.originalname}...` });
+        await new Promise((resolve, reject) => {
+          sftp.fastPut(f.path, remote, {}, (err) => {
+            fs.unlink(f.path, () => {});
+            if (err) reject(err); else resolve();
+          });
+        });
+      }
+
+      // Restore all files
+      for (const remotePath of remotePaths) {
+        const isCustom = remotePath.endsWith('.dump');
+        const cmd = isCustom
+          ? `pg_restore --no-owner --no-privileges -d "${dbUrl}" "${remotePath}" 2>&1; rm -f "${remotePath}"`
+          : `psql "${dbUrl}" < "${remotePath}" 2>&1; rm -f "${remotePath}"`;
+        sendSSE(res, 'progress', { message: `Restoring ${path.basename(remotePath)}...` });
+        const out = await new Promise((resolve) => {
+          conn.exec(cmd, (e, stream) => {
+            if (e) { resolve({ error: e.message }); return; }
+            let o = '';
+            stream.on('data', d => { o += d; });
+            stream.stderr.on('data', d => { o += d; });
+            stream.on('close', () => { resolve({ output: o }); });
+          });
+        });
+        results.push({ ok: !out.error, output: (out.output || out.error || '').slice(0, 500) });
+      }
+
+      const allOk = results.every(r => r.ok);
+      sendSSE(res, allOk ? 'done' : 'error', { message: allOk ? `All ${results.length} files restored` : `${results.filter(r => !r.ok).length} of ${results.length} failed`, results });
+      conn.end(); res.end();
+    });
+  }).on('error', err => {
+    for (const f of req.files) fs.unlink(f.path, () => {});
+    sendSSE(res, 'error', { message: err.message });
+    res.end();
+  }).connect({
+    host: server.host, port: server.port || 22,
+    username: server.username,
+    ...(server.private_key ? { privateKey: server.private_key } : { password: server.password || '' })
+  });
+});
+
 export default router;
