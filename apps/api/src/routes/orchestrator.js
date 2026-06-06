@@ -13,6 +13,8 @@ import { createCheckpoint, listCheckpoints, restoreCheckpoint } from '../../../.
 import { validateVpsDeployment } from '../../../../services/deployment/validator.js';
 import { searchCode } from '../../../../services/embeddings/fts.js';
 import { autoDeploy, addApiKeysToVps, runDiagnostics } from '../../../../services/deploy/autonomous.js';
+import { detectRequiredSecrets, buildSecretRequestMessage } from '../../../../services/deploy/secret-detector.js';
+import { runMigrationWithCleanup, autoCreateTables, uploadAndRunMigrations } from '../../../../services/deploy/db-migration.js';
 import { requireAuth } from '../../../../services/auth/middleware.js';
 import { query, queryOne, dbAvailable } from '../../../../services/db/client.js';
 
@@ -266,6 +268,18 @@ Categories: architecture, instruction, infrastructure, deployment, preference, f
 {"type": "retry_with_fix", "server_id": "abc123", "failed_command": "npm install", "fixed_command": "npm install --legacy-peer-deps", "cwd": "/var/www/myapp"}
 \`\`\`
 
+**detect_secrets** — Scan the deployed app for required API keys and secrets. Returns what the app needs and a request message for the user.
+\`\`\`apex-action
+{"type": "detect_secrets", "server_id": "abc123", "target_dir": "/var/www/myapp"}
+\`\`\`
+
+**auto_migrate_db** — Upload and run database migration files with automatic error cleanup. If no files are provided, it checks for missing tables and creates them.
+\`\`\`apex-action
+{"type": "auto_migrate_db", "server_id": "abc123", "files": ["/tmp/migration1.sql", "/tmp/migration2.sql"], "database_url": "postgresql://user:pass@localhost:5432/mydb"}
+\`\`\`
+- If files is omitted: auto-detects missing tables and creates basic ones
+- If migration has errors: automatically skips duplicate tables, disables FK constraints temporarily, or runs line-by-line
+
 ## Token Efficiency — Critical Rules
 You MUST follow these rules on every repository task to minimise token consumption:
 
@@ -372,6 +386,8 @@ function stepLabel(action) {
     case 'run_vps_sudo':        return `Running sudo: ${(action.command || '').slice(0, 60)}`;
     case 'debug_self':          return `Running diagnostics on VPS`;
     case 'retry_with_fix':      return `Retrying: ${(action.fixed_command || '').slice(0, 60)}`;
+    case 'detect_secrets':      return `Scanning for secrets in ${action.target_dir || 'VPS app'}`;
+    case 'auto_migrate_db':     return `Running DB migrations (${action.files?.length || 0} files)`;
     default:                    return action.type;
   }
 }
@@ -468,6 +484,10 @@ function stepDoneLabel(action, result) {
       return result.error ? `Diagnostics failed: ${result.error}` : `${result.results?.filter(r => !r.ok).length || 0} issues found`;
     case 'retry_with_fix':
       return result.error ? `Retry failed: ${result.error}` : `Retry ${result.success ? 'succeeded' : 'failed'} ✓`;
+    case 'detect_secrets':
+      return result.error ? `Secret scan failed: ${result.error}` : `${result.missing?.length || 0} secrets missing, ${result.found?.length || 0} found`;
+    case 'auto_migrate_db':
+      return result.error ? `Migration failed: ${result.error}` : `DB migrations complete ${result.auto_created ? '(auto-created tables)' : ''} ✓`;
     default:                return action.type;
   }
 }
@@ -1390,6 +1410,57 @@ async function executeAction(action, conv) {
       } catch (err) {
         if (ssh.isConnected()) ssh.dispose();
         return { error: err.message, previous: failed_command, fixed: fixed_command };
+      }
+    }
+
+    // ── detect_secrets ─────────────────────────────────────────────────────
+    case 'detect_secrets': {
+      const { server_id, target_dir } = action;
+      if (!server_id) return { error: 'server_id is required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({ host: server.host, port: server.port || 22, username: server.username, privateKey: server.private_key, readyTimeout: 10000 });
+        const dir = target_dir || server.deploy_dir || '/var/www/app';
+        const detected = await detectRequiredSecrets(ssh, dir);
+        ssh.dispose();
+        return { ...detected, requestMessage: buildSecretRequestMessage(detected.missing) };
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
+      }
+    }
+
+    // ── auto_migrate_db ────────────────────────────────────────────────────
+    case 'auto_migrate_db': {
+      const { server_id, files, database_url, target_dir } = action;
+      if (!server_id) return { error: 'server_id is required' };
+      const server = await getVpsServer(server_id);
+      if (!server) return { error: `VPS server "${server_id}" not found` };
+
+      const { NodeSSH } = await import('node-ssh');
+      const ssh = new NodeSSH();
+      try {
+        await ssh.connect({ host: server.host, port: server.port || 22, username: server.username, privateKey: server.private_key, readyTimeout: 10000 });
+        const dir = target_dir || server.deploy_dir || '/var/www/app';
+        const dbUrl = database_url || process.env.DATABASE_URL || `postgresql://localhost:5432/app`;
+
+        // If no files provided, check if tables exist and create basic ones
+        if (!files || files.length === 0) {
+          const result = await autoCreateTables(ssh, dbUrl);
+          ssh.dispose();
+          return { success: true, auto_created: true, ...result };
+        }
+
+        // Upload and run migrations with cleanup
+        const result = await uploadAndRunMigrations(server, files, dbUrl);
+        ssh.dispose();
+        return result;
+      } catch (err) {
+        if (ssh.isConnected()) ssh.dispose();
+        return { error: err.message };
       }
     }
 
