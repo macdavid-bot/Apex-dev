@@ -7,7 +7,8 @@ export async function runDeepSeekChat({ apiKey, messages, model = DEFAULT_MODEL 
   const response = await fetch(DEEPSEEK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages, stream: false })
+    body: JSON.stringify({ model, messages, stream: false }),
+    signal: AbortSignal.timeout(90000)
   });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
@@ -27,7 +28,8 @@ export async function* runDeepSeekStream({ apiKey, messages, model = DEFAULT_MOD
   const response = await fetch(DEEPSEEK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages, stream: true })
+    body: JSON.stringify({ model, messages, stream: true }),
+    signal: AbortSignal.timeout(90000)
   });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
