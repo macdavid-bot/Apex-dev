@@ -278,6 +278,24 @@ h5.md-heading { font-size: 12px; }
 .activity-step-error   .activity-status-icon { color: #f85149; }
 .activity-step-error   .activity-label       { color: #f85149; }
 
+/* ── Minimal AI Status (single line) ─────────────────────────────────── */
+.ai-status {
+  font-size: 11px;
+  color: #8b949e;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-status .spin-icon {
+  font-size: 10px;
+  color: #3fb950;
+  flex-shrink: 0;
+}
+
 /* ── Spinner ─────────────────────────────────────────────── */
 .spin-icon {
   display: inline-block;

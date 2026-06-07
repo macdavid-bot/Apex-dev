@@ -2,8 +2,14 @@ import { useEffect, useRef } from 'react';
 import './ChatWorkspace.css';
 
 // ── Markdown renderer ──────────────────────────────────────────────────────────
+function cleanContent(text) {
+  // Remove apex-action blocks from display (AI still needs them for reasoning)
+  return text.replace(/```apex-action\n[\s\S]*?```\n?/g, '');
+}
+
 function renderMarkdown(text) {
   if (!text) return null;
+  text = cleanContent(text);
   const lines = text.split('\n');
   const elements = [];
   let i = 0; let key = 0;
@@ -230,14 +236,22 @@ function ActionSteps({ actions }) {
 
 function StreamingMessage({ content, liveSteps }) {
   const hasSteps = liveSteps && liveSteps.length > 0;
+  // Single short status line instead of full log
+  const statusLine = hasSteps
+    ? liveSteps.filter(s => s.status === 'running').map(s => s.label).join(' • ')
+    : '';
   return (
     <div className="message-row assistant">
       <div className="message-bubble streaming-bubble">
-        {hasSteps && <LiveActivityLog steps={liveSteps} />}
+        {statusLine && (
+          <div className="ai-status">
+            <span className="spin-icon">⟳</span> {statusLine}
+          </div>
+        )}
         {content ? (
           <div className="message-md">{renderMarkdown(content)}<span className="stream-cursor" /></div>
         ) : (
-          !hasSteps && <div className="typing"><span /><span /><span /></div>
+          !statusLine && <div className="typing"><span /><span /><span /></div>
         )}
       </div>
     </div>

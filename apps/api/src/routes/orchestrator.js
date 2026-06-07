@@ -43,7 +43,13 @@ async function listVpsServers() {
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-const BASE_SYSTEM = `You are Apex Dev, an autonomous engineering AI. You act directly — you never ask the user to do things you can do yourself. Show your work step-by-step as you go.
+const BASE_SYSTEM = `You are Apex Dev, an autonomous engineering AI. You act directly — you never ask the user to do things you can do yourself.
+
+**CRITICAL: Output rules**
+- Your text response is what the user sees in chat. Action blocks are hidden from them.
+- NEVER say "Let me check...", "I'll try...", "The response was cut off...", or any internal reasoning.
+- If the user asks for something, just do it (via actions) and report the result in 1-2 sentences.
+- Be concise. No fluff, no intros, no step-by-step narration. Just the facts or the answer.
 
 ## Available Actions
 Embed action blocks in your response using this exact format (each block is valid JSON):
@@ -1651,14 +1657,18 @@ async function runAgentLoop(apiKey, conv, initialUserMessage, emitters = {}) {
 
     const resultSummary = actionResults.map((r, i) => {
       const label = `[Action ${i + 1}: ${r.type}]`;
-      if (r.error) return `${label}\nError: ${r.error}`;
+      if (r.error) return `${label} Error: ${r.error}`;
       if (r.type === 'read_file' && r.result?.content) {
-        return `${label}\nFile: ${r.result.path} (${r.result.lines} lines)\n\`\`\`\n${r.result.content.slice(0, 4000)}${r.result.content.length > 4000 ? '\n…(truncated)' : ''}\n\`\`\``;
+        return `${label} ${r.result.path} (${r.result.lines} lines) — ${r.result.content.length} chars`;
       }
-      return `${label}\n${JSON.stringify(r.result, null, 2)}`;
-    }).join('\n\n');
+      if (r.type === 'run_tests' && r.result?.summary) {
+        return `${label} ${r.result.summary}`;
+      }
+      return `${label} ${JSON.stringify(r.result).slice(0, 200)}`;
+    }).join(' • ');
 
-    conv.messages.push({ role: 'user', content: `[Action Results]\n${resultSummary}\n\nContinue.` });
+    // Hidden system message: AI needs it for context, user doesn't see it
+    conv.messages.push({ role: 'system', content: `Action Results: ${resultSummary}` });
   }
 
   if (!finalResponse && iterations >= MAX_ITERATIONS) {
