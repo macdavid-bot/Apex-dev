@@ -1581,7 +1581,7 @@ async function buildSystemPrompt(repoCtx) {
 
 // ── Core agent loop (streaming) ───────────────────────────────────────────────
 
-const MAX_ITERATIONS  = 3;
+const MAX_ITERATIONS  = 8;
 const MAX_TEST_RETRIES = 3;
 
 async function runAgentLoop(apiKey, conv, initialUserMessage, emitters = {}) {
