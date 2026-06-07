@@ -317,6 +317,14 @@ async function dbSaveConversation(id, repoCtx, sshKey) {
   );
 }
 
+async function dbUpdateSummary(id, summary) {
+  if (!await dbAvailable()) return;
+  await query(
+    `UPDATE conversations SET summary=$2, updated_at=NOW() WHERE id=$1`,
+    [id, summary]
+  );
+}
+
 async function dbSaveMessage(convId, role, content, actions = null) {
   if (!await dbAvailable()) return;
   await query(
@@ -1769,10 +1777,20 @@ router.post('/chat', requireAuth, async (req, res) => {
 router.get('/conversations', requireAuth, async (req, res) => {
   if (await dbAvailable()) {
     const result = await query(
-      `SELECT id, repo_owner, repo_name, repo_branch, summary, created_at, updated_at
-       FROM conversations ORDER BY updated_at DESC LIMIT 50`
+      `SELECT c.id, c.repo_owner, c.repo_name, c.repo_branch, c.summary, c.created_at, c.updated_at,
+              (SELECT m.content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user' ORDER BY m.created_at DESC LIMIT 1) AS last_message
+       FROM conversations c ORDER BY c.updated_at DESC LIMIT 50`
     ).catch(() => ({ rows: [] }));
-    return res.json(result.rows);
+    return res.json(result.rows.map(r => ({
+      id: r.id,
+      repo_owner: r.repo_owner,
+      repo_name:  r.repo_name,
+      repo_branch: r.repo_branch,
+      summary:    r.summary || '',
+      lastMessage: r.last_message || r.summary || '',
+      created_at: r.created_at,
+      updated_at: r.updated_at
+    })));
   }
   // In-memory fallback
   const list = [...conversations.values()].map(c => ({
@@ -1781,6 +1799,7 @@ router.get('/conversations', requireAuth, async (req, res) => {
     repo_name:   c.repoCtx?.repo   || null,
     repo_branch: c.repoCtx?.branch || 'main',
     summary:     '',
+    lastMessage: '',
     created_at:  new Date().toISOString(),
     updated_at:  new Date().toISOString()
   }));

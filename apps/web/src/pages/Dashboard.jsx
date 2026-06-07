@@ -249,7 +249,18 @@ export default function Dashboard({ user, onLogout }) {
         const finalContent  = result.result?.response || accumulated || 'Task completed.';
         const finalActions  = result.result?.executedActions || executedActions;
 
-        setMessages(prev => [...prev, { role: 'assistant', content: finalContent, actions: finalActions }]);
+        // Only show a brief summary of actions, not full detail
+        const actionSummary = finalActions && finalActions.length > 0
+          ? finalActions.map(a => {
+              const icon = a.type === 'edit_file' ? '✏️' : a.type === 'read_file' ? '📂' : a.type === 'run_tests' ? '🧪' : a.type === 'create_pull_request' ? '🔀' : a.type === 'deploy_to_vps' ? '🚀' : a.type === 'run_vps' ? '🗣️' : a.type === 'auto_deploy' ? '🚀' : '✅';
+              return `${icon} ${a.type}`;
+            }).join(' • ')
+          : '';
+        const finalContentWithSummary = actionSummary
+          ? `${finalContent}\n\n---\n**Done:** ${actionSummary}`
+          : finalContent;
+
+        setMessages(prev => [...prev, { role: 'assistant', content: finalContentWithSummary, actions: [] }]);
         setLoading(false);
 
         // Show redeploy CTA if there were code changes and VPS servers exist
@@ -383,17 +394,21 @@ export default function Dashboard({ user, onLogout }) {
               Recent
               {historyLoading && <span className="history-loading">…</span>}
             </div>
-            {conversations.slice(0, 12).map(c => (
-              <button
-                key={c.id}
-                className={`history-item ${c.id === convId ? 'history-item-active' : ''}`}
-                onClick={() => loadConversation(c)}
-                title={`${c.repo_name || 'General'} — ${formatRelative(c.updated_at)}`}
-              >
-                <span className="history-repo">{c.repo_name || 'General'}</span>
-                <span className="history-date">{formatRelative(c.updated_at)}</span>
-              </button>
-            ))}
+            {conversations.slice(0, 12).map(c => {
+              const preview = c.lastMessage || c.summary || c.repo_name || 'General';
+              const previewLabel = preview.length > 35 ? preview.slice(0, 35) + '…' : preview;
+              return (
+                <button
+                  key={c.id}
+                  className={`history-item ${c.id === convId ? 'history-item-active' : ''}`}
+                  onClick={() => loadConversation(c)}
+                  title={`${preview} — ${formatRelative(c.updated_at)}`}
+                >
+                  <span className="history-repo">{previewLabel}</span>
+                  <span className="history-date">{formatRelative(c.updated_at)}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 

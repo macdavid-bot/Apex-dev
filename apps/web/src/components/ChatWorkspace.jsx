@@ -258,10 +258,7 @@ export default function ChatWorkspace({ messages = [], loading = false, streamin
         <div key={i} className={`message-row ${msg.role}`}>
           <div className="message-bubble">
             {msg.role === 'assistant' ? (
-              <>
-                <ActionSteps actions={msg.actions} />
-                <div className="message-md">{renderMarkdown(msg.content)}</div>
-              </>
+              <div className="message-md">{renderMarkdown(msg.content)}</div>
             ) : (
               <pre className="message-text">{msg.content}</pre>
             )}
