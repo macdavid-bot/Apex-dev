@@ -147,21 +147,38 @@ export async function autoDeploy(server, opts = {}) {
   }
 
   // Step 8: Domain + SSL
+  let domResult = null;
   if (domain) {
     log(`Configuring domain ${domain} with ${ssl ? 'SSL' : 'no SSL'}...`);
-    const dom = await configureDomainOnServer(ssh, server, domain, appPort, ssl);
-    results.push({ step: 'domain', ...dom });
-    log(dom.ok ? 'Domain configured' : `Domain config had issues: ${dom.error}`);
+    domResult = await configureDomainOnServer(ssh, server, domain, appPort, ssl);
+    results.push({ step: 'domain', ...domResult });
+    log(domResult.ok ? 'Domain configured' : `Domain config had issues: ${domResult.error}`);
   }
 
-  // Step 9: Health check
-  log('Running health check...');
-  const health = await healthCheck(ssh, appPort, usePm2 ? processName : null);
+  // Step 9: Health check with retry
+  log('Waiting for app to be ready...');
+  const health = await waitForAppReady(ssh, appPort, usePm2 ? processName : null);
   results.push({ step: 'health', ...health });
 
   ssh.dispose();
-  log('Deployment complete');
 
+  if (!health.ok) {
+    return {
+      success: false,
+      error: `App not responding on port ${appPort}. PM2: ${health.pm2Status || 'unknown'}, HTTP: ${health.httpStatus || 'failed'}. Check logs: ${logs.slice(-3).join('; ')}`,
+      server: server.host,
+      repo: repoName,
+      dir: targetDir,
+      domain: domain || null,
+      appPort,
+      pm2Name: usePm2 ? processName : null,
+      databaseUrl: dbUrl || null,
+      logs,
+      results
+    };
+  }
+
+  log('Deployment complete — app is healthy');
   return {
     success: true,
     server: server.host,
@@ -331,9 +348,10 @@ async function setupPm2(ssh, targetDir, name, port) {
   // Ensure log dir
   await ssh.execCommand('mkdir -p /var/log/pm2');
 
-  // Start/restart via ecosystem
-  const r2 = await ssh.execCommand(`cd ${targetDir} && pm2 start ecosystem.config.cjs --force`);
-  if (r2.code !== 0 && !r2.stdout?.includes('already')) {
+  // Clean restart: delete old then start fresh
+  await ssh.execCommand(`pm2 delete ${name} 2>&1 || true`);
+  const r2 = await ssh.execCommand(`cd ${targetDir} && pm2 start ecosystem.config.cjs`);
+  if (r2.code !== 0) {
     return { ok: false, error: r2.stderr?.slice(0, 200), output: r2.stdout?.slice(0, 200) };
   }
 
@@ -346,23 +364,29 @@ async function setupPm2(ssh, targetDir, name, port) {
 // ── Domain + SSL ───────────────────────────────────────────────────────────
 
 async function configureDomainOnServer(ssh, server, domain, appPort, ssl) {
-  const nginxConf = buildNginxConfig({ domain, app_port: appPort, ssl });
   const confPath = `/etc/nginx/sites-available/${domain}`;
   const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
   const defaultPath = '/etc/nginx/sites-enabled/default';
 
-  // Write nginx config
-  const r1 = await ssh.execCommand(`sudo tee ${confPath} > /dev/null << 'EOF'\n${nginxConf}\nEOF`);
+  // ALWAYS write non-SSL config first — certbot will add SSL block later
+  const httpConf = buildNginxConfig({ domain, app_port: appPort, ssl: false });
+  const r1 = await ssh.execCommand(`sudo tee ${confPath} > /dev/null << 'EOF'\n${httpConf}\nEOF`);
   if (r1.code !== 0) return { ok: false, error: `nginx write failed: ${r1.stderr?.slice(0, 200)}` };
 
   // Enable site
   const r2 = await ssh.execCommand(`sudo ln -sf ${confPath} ${enabledPath} && sudo rm -f ${defaultPath} && sudo nginx -t && sudo systemctl reload nginx`);
   if (r2.code !== 0) return { ok: false, error: `nginx enable failed: ${r2.stderr?.slice(0, 200)}` };
 
-  // SSL
+  // SSL via certbot (modifies the existing config)
   if (ssl) {
-    const r3 = await ssh.execCommand(`sudo certbot --nginx -d ${domain} --non-interactive --agree-tos --email admin@${domain} 2>&1 || sudo certbot --nginx -d ${domain} --non-interactive --agree-tos --email admin@${domain} --renew-by-default 2>&1`);
-    return { ok: true, ssl: true, output: r3.stdout?.slice(0, 200), error: r3.stderr?.slice(0, 200) };
+    const dnsCheck = await ssh.execCommand(`curl -s -o /dev/null -w "%{http_code}" http://${domain} || echo "DNS"`);
+    const dnsCode = dnsCheck.stdout.trim();
+    if (dnsCode !== 'DNS' && !dnsCode.startsWith('2') && !dnsCode.startsWith('3')) {
+      return { ok: true, ssl: false, warning: `DNS not yet resolving to this server (got ${dnsCode}). Point A record to ${server.host} and re-run auto_connect_domain.` };
+    }
+    const r3 = await ssh.execCommand(`sudo certbot --nginx -d ${domain} --non-interactive --agree-tos --email admin@${domain} --redirect 2>&1 || echo "CERTBOT_FAILED"`);
+    const sslOk = !r3.stdout?.includes('CERTBOT_FAILED') && !r3.stdout?.includes('error');
+    return { ok: true, ssl: sslOk, output: r3.stdout?.slice(0, 200), warning: sslOk ? null : 'SSL certbot failed. Domain works on HTTP; SSL may need manual setup.' };
   }
 
   return { ok: true, ssl: false };
@@ -370,16 +394,28 @@ async function configureDomainOnServer(ssh, server, domain, appPort, ssl) {
 
 // ── Health Check ───────────────────────────────────────────────────────────
 
-async function healthCheck(ssh, port, pm2Name) {
-  const checks = [];
-  if (pm2Name) {
-    const r = await ssh.execCommand(`pm2 describe ${pm2Name} | grep -E "status|pid|memory" | head -5`);
-    checks.push({ type: 'pm2', ok: r.stdout.includes('online'), output: r.stdout?.slice(0, 200) });
+async function waitForAppReady(ssh, port, pm2Name, maxAttempts = 5, delayMs = 4000) {
+  let pm2Status = 'unknown';
+  let httpStatus = '000';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (pm2Name) {
+      const r = await ssh.execCommand(`pm2 describe ${pm2Name} | grep -E "status|pid|memory|restarts" | head -6`);
+      pm2Status = r.stdout?.slice(0, 200) || 'no output';
+      const isOnline = r.stdout.includes('online');
+      if (!isOnline) {
+        await ssh.execCommand(`pm2 restart ${pm2Name}`);
+      }
+    }
+    const r2 = await ssh.execCommand(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${port} || echo "000"`);
+    httpStatus = r2.stdout.trim();
+    if (httpStatus.startsWith('2') || httpStatus.startsWith('3')) {
+      return { ok: true, pm2Status, httpStatus, attempts: attempt };
+    }
+    if (attempt < maxAttempts) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
   }
-  const r2 = await ssh.execCommand(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${port} || echo "000"`);
-  const code = r2.stdout.trim();
-  checks.push({ type: 'http', ok: code.startsWith('2') || code.startsWith('3'), status: code });
-  return { ok: checks.every(c => c.ok), checks };
+  return { ok: false, pm2Status, httpStatus, attempts: maxAttempts };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

@@ -307,9 +307,9 @@ You MUST follow these rules on every repository task to minimise token consumpti
 4. **Surgical edits**: Use old_str/new_str with 3–5 lines of unique context. Never rewrite whole files.
 5. **Test before PR**: ALWAYS call run_tests after editing code. Fix failures and retry up to 3 times. Only call create_pull_request after tests pass.
 6. **Remember discoveries**: Use add_memory for architecture quirks, deployment patterns, important findings.
-7. **Narrate briefly**: One sentence describing what you're doing before each action block.
-8. **On error**: Read the error carefully, reason about root cause, retry with corrected action.
-9. **VPS actions**: Use server IDs listed in the system context. Prefer deploy_to_vps over multiple run_vps commands.`;
+7. **On error**: Read the error carefully, reason about root cause, retry with corrected action.
+8. **Verify success**: After auto_deploy, the result tells you if the app is actually healthy. If not healthy, debug and retry.
+9. **VPS actions**: Use server IDs listed in the system context. Prefer auto_deploy over multiple run_vps commands.`;
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -333,9 +333,16 @@ async function dbUpdateSummary(id, summary) {
 
 async function dbSaveMessage(convId, role, content, actions = null) {
   if (!await dbAvailable()) return;
+  // Truncate actions before storage to save DB space
+  const trimmedActions = actions ? actions.map(a => ({
+    type: a.type,
+    error: a.result?.error ? a.result.error.slice(0, 200) : undefined,
+    success: a.result?.success,
+    repo: a.result?.repo,
+  })) : null;
   await query(
     `INSERT INTO messages (conversation_id, role, content, actions_json) VALUES ($1,$2,$3,$4)`,
-    [convId, role, content, actions ? JSON.stringify(actions) : null]
+    [convId, role, content, trimmedActions ? JSON.stringify(trimmedActions) : null]
   );
 }
 
@@ -485,7 +492,9 @@ function stepDoneLabel(action, result) {
     case 'restore_db_backup':
       return result.error ? `Restore failed: ${result.error}` : `DB restore complete ✓`;
     case 'auto_deploy':
-      return result.error ? `Deploy failed: ${result.error}` : `Deployed ${result.repo} ✓ (PM2: ${result.pm2Name}, Domain: ${result.domain || 'none'})`;
+      if (result.error) return `Deploy failed: ${result.error}`;
+      if (!result.success) return `Deploy issue: ${result.error || 'app not responding'}`;
+      return `Deployed ${result.repo} ✓ (PM2: ${result.pm2Name}, Domain: ${result.domain || 'none'})`;
     case 'auto_setup_db':
       return result.error ? `DB setup failed: ${result.error}` : `${result.results?.length || 0} DB files restored ✓`;
     case 'auto_add_keys':
@@ -1535,7 +1544,8 @@ async function buildSystemPrompt(repoCtx) {
     if (repoCtx.description) system += `Description: ${repoCtx.description}\n`;
     if (repoCtx.language)    system += `Primary language: ${repoCtx.language}\n`;
     if (repoCtx.files?.length) {
-      system += `\nFile tree (${repoCtx.fileCount} files):\n${repoCtx.files.map(f => f.path).join('\n')}\n`;
+      const topFiles = repoCtx.files.slice(0, 50);
+      system += `\nFile tree (${repoCtx.fileCount} files, top 50 shown):\n${topFiles.map(f => f.path).join('\n')}${repoCtx.files.length > 50 ? '\n... (' + (repoCtx.fileCount - 50) + ' more files)' : ''}\n`;
     }
     if (repoCtx.readme) system += `\nREADME (excerpt):\n${repoCtx.readme}\n`;
     const memPrompt = await formatMemoryForPrompt(repoCtx.owner, repoCtx.repo);
@@ -1571,7 +1581,7 @@ async function buildSystemPrompt(repoCtx) {
 
 // ── Core agent loop (streaming) ───────────────────────────────────────────────
 
-const MAX_ITERATIONS  = 8;
+const MAX_ITERATIONS  = 3;
 const MAX_TEST_RETRIES = 3;
 
 async function runAgentLoop(apiKey, conv, initialUserMessage, emitters = {}) {
@@ -1656,19 +1666,22 @@ async function runAgentLoop(apiKey, conv, initialUserMessage, emitters = {}) {
     await dbSaveMessage(conv.id, 'assistant', replyContent, executedActions.slice(-parsedActions.length));
 
     const resultSummary = actionResults.map((r, i) => {
-      const label = `[Action ${i + 1}: ${r.type}]`;
-      if (r.error) return `${label} Error: ${r.error}`;
+      const label = `[${r.type}]`;
+      if (r.error) return `${label} ERROR: ${r.error.slice(0, 80)}`;
       if (r.type === 'read_file' && r.result?.content) {
-        return `${label} ${r.result.path} (${r.result.lines} lines) — ${r.result.content.length} chars`;
+        return `${label} ${r.result.path} (${r.result.lines}L, ${r.result.content.length}C)`;
       }
       if (r.type === 'run_tests' && r.result?.summary) {
         return `${label} ${r.result.summary}`;
       }
-      return `${label} ${JSON.stringify(r.result).slice(0, 200)}`;
-    }).join(' • ');
+      if (r.type === 'auto_deploy') {
+        return `${label} ${r.result?.success ? 'OK' : 'FAIL'} ${r.result?.repo || ''}`;
+      }
+      return `${label} ${JSON.stringify(r.result).slice(0, 80)}`;
+    }).join(' | ');
 
-    // Hidden system message: AI needs it for context, user doesn't see it
-    conv.messages.push({ role: 'system', content: `Action Results: ${resultSummary}` });
+    // Hidden system message — kept compact
+    conv.messages.push({ role: 'system', content: `Results: ${resultSummary}` });
   }
 
   if (!finalResponse && iterations >= MAX_ITERATIONS) {

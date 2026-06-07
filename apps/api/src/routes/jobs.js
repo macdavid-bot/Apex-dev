@@ -37,20 +37,20 @@ router.get('/:id/stream', requireAuth, (req, res) => {
   const onError    = ({ jobId, error })    => { if (jobId === id) { send('error', { error }); cleanup(); res.end(); } };
 
   function cleanup() {
-    jobEvents.off('token',    onToken);
-    jobEvents.off('action',   onAction);
-    jobEvents.off('step',     onStep);
-    jobEvents.off('progress', onProgress);
-    jobEvents.off('done',     onDone);
-    jobEvents.off('error',    onError);
+    jobEvents.off('token',     onToken);
+    jobEvents.off('action',    onAction);
+    jobEvents.off('step',      onStep);
+    jobEvents.off('progress',  onProgress);
+    jobEvents.off('done',      onDone);
+    jobEvents.off('job_error', onError);
   }
 
-  jobEvents.on('token',    onToken);
-  jobEvents.on('action',   onAction);
-  jobEvents.on('step',     onStep);
-  jobEvents.on('progress', onProgress);
-  jobEvents.on('done',     onDone);
-  jobEvents.on('error',    onError);
+  jobEvents.on('token',     onToken);
+  jobEvents.on('action',    onAction);
+  jobEvents.on('step',      onStep);
+  jobEvents.on('progress',  onProgress);
+  jobEvents.on('done',      onDone);
+  jobEvents.on('job_error', onError);
 
   req.on('close', cleanup);
 

@@ -43,7 +43,8 @@ async function tick() {
   } catch (err) {
     console.error(`[Worker] Job ${job.id} failed:`, err.message);
     await failJob(job.id, err.message);
-    jobEvents.emit('error', { jobId: job.id, error: err.message });
+    // Emit 'job_error' instead of 'error' to avoid unhandled EventEmitter crash
+    jobEvents.emit('job_error', { jobId: job.id, error: err.message });
   } finally {
     running = false;
   }

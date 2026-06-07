@@ -4,8 +4,13 @@ import path from 'path';
 
 export async function readLocalFile(filePath) {
   const abs = path.resolve(filePath);
-  const content = await readFile(abs, 'utf-8');
-  return { path: filePath, content, lines: content.split('\n').length };
+  try {
+    const content = await readFile(abs, 'utf-8');
+    return { path: filePath, content, lines: content.split('\n').length };
+  } catch (err) {
+    if (err.code === 'ENOENT') return { path: filePath, error: `File not found: ${filePath}` };
+    return { path: filePath, error: err.message };
+  }
 }
 
 export async function writeLocalFile(filePath, content) {
@@ -38,18 +43,25 @@ export async function patchLocalFile(filePath, oldStr, newStr) {
 
 export async function listLocalDir(dirPath) {
   const abs = path.resolve(dirPath);
-  const entries = await readdir(abs, { withFileTypes: true });
-  const result = await Promise.all(
-    entries.map(async e => {
-      const info = { name: e.name, type: e.isDirectory() ? 'dir' : 'file' };
-      if (e.isFile()) {
-        try {
-          const s = await stat(path.join(abs, e.name));
-          info.size = s.size;
-        } catch { /* ignore */ }
-      }
-      return info;
-    })
-  );
-  return { path: dirPath, entries: result };
+  try {
+    const entries = await readdir(abs, { withFileTypes: true });
+    const result = await Promise.all(
+      entries.map(async e => {
+        const info = { name: e.name, type: e.isDirectory() ? 'dir' : 'file' };
+        if (e.isFile()) {
+          try {
+            const s = await stat(path.join(abs, e.name));
+            info.size = s.size;
+          } catch { /* ignore */ }
+        }
+        return info;
+      })
+    );
+    return { path: dirPath, entries: result };
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return { path: dirPath, entries: [], error: `Directory not found: ${dirPath}` };
+    }
+    return { path: dirPath, entries: [], error: err.message };
+  }
 }
